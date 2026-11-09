@@ -20,6 +20,8 @@ Item {
   property string gen: ""
   // Where the dock shows, or "" when it does not.
   property string dockEdge: ""
+  // The bar widget's settings as a Lua table literal, built from checked values only.
+  property string settingsLua: "{}"
 
   readonly property string luaPath: Qt.resolvedUrl("hypr/window-zones.lua").toString().replace(/^file:\/\//, "")
   readonly property string shellJson: (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/omarchy/shell.json"
@@ -41,17 +43,37 @@ Item {
     root.seq = 0
     root.state = {}
     var dock = root.dockEdge ? "{ edge = \"" + root.dockEdge + "\", size = " + root.dockSize + " }" : "nil"
-    loader.command = ["hyprctl", "eval", "window_zones_gen = " + root.gen + " window_zones_dock = " + dock + " dofile(\"" + luaPath + "\")"]
+    loader.command = ["hyprctl", "eval", "window_zones_gen = " + root.gen + " window_zones_dock = " + dock
+      + " window_zones_settings = " + root.settingsLua + " dofile(\"" + luaPath + "\")"]
     loader.running = true
   }
 
-  function readDockEdge(text) {
-    var config = {}
-    try { config = JSON.parse(text) } catch (e) {}
+  function readDockEdge(config) {
     var d = config.dock || {}
     var off = Array.isArray(config.disabledPlugins) && config.disabledPlugins.indexOf("omarchy.dock") !== -1
     if (off || d.autohide === true) return ""
     return ["top", "bottom", "left", "right"].indexOf(d.position) !== -1 ? d.position : "bottom"
+  }
+
+  // The bar entry of this plugin's widget holds its settings. Only booleans and
+  // finite numbers pass, since the result becomes Lua source.
+  function readSettings(config) {
+    var id = root.manifest ? root.manifest.id : "io.github.derjungeherr.window-zones"
+    var layout = config.bar && config.bar.layout ? config.bar.layout : {}
+    var entry = {}
+    for (var section in layout) {
+      var list = Array.isArray(layout[section]) ? layout[section] : []
+      for (var i = 0; i < list.length; i++) {
+        if (list[i] && list[i].id === id) entry = list[i]
+      }
+    }
+    var parts = []
+    for (var key in entry) {
+      var v = entry[key]
+      if (!/^[A-Za-z]+$/.test(key)) continue
+      if (typeof v === "boolean" || (typeof v === "number" && isFinite(v))) parts.push(key + " = " + v)
+    }
+    return "{ " + parts.join(", ") + " }"
   }
 
   onDockSizeChanged: if (loader.loaded) load()
@@ -61,9 +83,13 @@ Item {
     watchChanges: true
     onFileChanged: reload()
     onLoaded: {
-      var edge = root.readDockEdge(text())
-      if (edge === root.dockEdge && loader.loaded) return
+      var config = {}
+      try { config = JSON.parse(text()) } catch (e) {}
+      var edge = root.readDockEdge(config)
+      var settings = root.readSettings(config)
+      if (edge === root.dockEdge && settings === root.settingsLua && loader.loaded) return
       root.dockEdge = edge
+      root.settingsLua = settings
       root.load()
     }
     onLoadFailed: root.load()

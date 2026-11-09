@@ -34,6 +34,16 @@ omarchy plugin add https://github.com/DerJungeHerr/omarchy-window-zones --enable
 
 Remove it with `omarchy plugin remove io.github.derjungeherr.window-zones`.
 
+## Settings
+
+Window Zones puts a small grid icon on the bar. Left click opens its settings,
+right click turns snapping on or off. You can switch screen edges, the layout
+panel, fanning and peeking on or off, and set the windows per fan, the fan
+offset, the peek delay and the peek opacity. Changes apply at once.
+
+The values sit on the widget's entry in `~/.config/omarchy/shell.json`, so
+`omarchy bar set io.github.derjungeherr.window-zones fanMax 3` works too.
+
 ## How it works
 
 Hyprland has no drag events, and Omarchy's titlebars take the click before any

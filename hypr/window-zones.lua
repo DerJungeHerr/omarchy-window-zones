@@ -19,6 +19,7 @@ local TOL = 2          -- px: how closely the window has to follow the cursor
 local STILL_MS = 120   -- stillness before the release probe
 local EDGE = 6         -- px: width of the left/right snap strips
 local HOT_HALF = 0.15  -- half-width of the top-centre hotspot, as part of the monitor width
+-- Defaults for what the bar widget's settings can change (see the runtime part).
 local FAN_X = 24       -- px: each window in a shared zone sits this far right of the one behind
 local FAN_MAX = 5      -- windows fanned out per zone; more start again at the back
 local PEEK_MS = 250    -- hover over a covered window in a fan this long to peek at it
@@ -157,6 +158,20 @@ window_zones = M
 local gen = math.floor(tonumber(window_zones_gen) or 0)
 local dock = window_zones_dock
 M.gen = gen
+
+-- Settings from the bar widget; anything missing keeps its default.
+local cfg = type(window_zones_settings) == "table" and window_zones_settings or {}
+local function setting(key, default)
+  local v = cfg[key]
+  if type(v) ~= type(default) then return default end
+  return v
+end
+local ENABLED, EDGES, PANEL, FAN, PEEK =
+  setting("enabled", true), setting("edges", true), setting("panel", true), setting("fan", true), setting("peek", true)
+FAN_MAX = math.max(1, math.floor(setting("fanMax", FAN_MAX)))
+FAN_X = math.max(0, math.floor(setting("fanOffset", FAN_X)))
+PEEK_MS = math.max(0, setting("peekDelay", PEEK_MS))
+PEEK_OPACITY = math.min(1, math.max(0.1, setting("peekOpacity", PEEK_OPACITY * 100) / 100))
 
 local function xy(t) return t.x or t[1], t.y or t[2] end
 
@@ -299,6 +314,7 @@ local function start_peek(list, m)
 end
 
 local function hover_tick(c)
+  if not PEEK then return end
   if peek then
     local active = hl.get_active_window()
     if active and active.address == peek.addr then return unpeek(true) end
@@ -340,7 +356,7 @@ local function finish(drop)
     dispatch(hl.dsp.window.move({ window = "address:" .. d.addr, workspace = "special:scratchpad", follow = false }))
   else
     local zone = zone_of(d)
-    local list = members(zone, d.addr)
+    local list = FAN and members(zone, d.addr) or {}
     list[#list + 1] = { addr = d.addr }
     arrange(zone, list, true)
   end
@@ -396,11 +412,11 @@ local function target_at(d, x, y)
     return M.panel_hit(d.panel, x, y)
   end
   d.panel = nil
-  if M.in_hotspot(d.area, mx, my, mw, x, y) then
+  if PANEL and M.in_hotspot(d.area, mx, my, mw, x, y) then
     d.panel, d.panel_monitor = M.panel(d.area, mx, mw), m.name
     return nil
   end
-  return M.edge_hit(mx, mw, x)
+  return EDGES and M.edge_hit(mx, mw, x) or nil
 end
 
 -- The overlay works in monitor-local coordinates.
@@ -424,7 +440,7 @@ local function show(d)
     if not M.LAYOUTS[d.target.layout].scratchpad then
       -- Where the window would land: in front of whatever the zone holds.
       local zone = zone_of(d)
-      local n = #members(zone, d.addr) + 1
+      local n = FAN and #members(zone, d.addr) + 1 or 1
       state.preview = local_rect(d, M.fan(zone, n, n - 1, d.bar))
     end
   end
@@ -488,6 +504,7 @@ end
 M.idle_timer = hl.timer(idle_tick, { timeout = IDLE_MS, type = "repeat" })
 M.drag_timer = hl.timer(drag_tick, { timeout = DRAG_MS, type = "repeat" })
 M.drag_timer:set_enabled(false)
+M.idle_timer:set_enabled(ENABLED)
 
 -- A closed window leaves its zone: the rest close up.
 M.closed = hl.on("window.close", function(w)
