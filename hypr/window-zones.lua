@@ -1,9 +1,9 @@
--- Perch: Windows-style window snapping for Omarchy floating workspaces.
+-- Window Zones: Windows-style window snapping for Omarchy floating workspaces.
 --
 -- Service.qml loads this file into Hyprland with `hyprctl eval` when the shell
 -- starts and after every config reload (a reload starts a fresh Lua state):
---   perch_gen = 1731100000000  perch_dock = { edge = "bottom", size = 51 }  dofile(".../perch.lua")
--- perch_gen identifies the loading service; the overlay ignores other generations.
+--   window_zones_gen = 1731100000000  window_zones_dock = { edge = "bottom", size = 51 }  dofile(".../window-zones.lua")
+-- window_zones_gen identifies the loading service; the overlay ignores other generations.
 --
 -- Hyprland has no drag events and Omarchy's titlebar plugin swallows titlebar
 -- clicks, so a drag is recognised by watching: the active window moving by the
@@ -130,11 +130,11 @@ if not hl then return M end
 
 -- Runtime -----------------------------------------------------------------
 
-if perch and perch.stop then perch.stop() end
-perch = M
+if window_zones and window_zones.stop then window_zones.stop() end
+window_zones = M
 
-local gen = math.floor(tonumber(perch_gen) or 0)
-local dock = perch_dock
+local gen = math.floor(tonumber(window_zones_gen) or 0)
+local dock = window_zones_dock
 M.gen = gen
 
 local function xy(t) return t.x or t[1], t.y or t[2] end
@@ -174,12 +174,12 @@ local seq = 0
 local function overlay(state)
   seq = seq + 1
   local json = state and M.json(state) or "{}"
-  hl.exec_cmd("omarchy-shell -q perch show " .. gen .. " " .. seq .. " " .. shell_quote(json))
+  hl.exec_cmd("omarchy-shell -q window-zones show " .. gen .. " " .. seq .. " " .. shell_quote(json))
 end
 
 local function dispatch(d) pcall(hl.dispatch, d) end
 
--- Original sizes of windows Perch placed, so dragging one out gives it back.
+-- Original sizes of windows Window Zones placed, so dragging one out gives it back.
 local snapped = {}
 
 local function place(addr, box, bar)
@@ -218,7 +218,7 @@ local function finish(drop)
   end
 end
 
--- Pulled out of its zone: back to the size it had before Perch placed it,
+-- Pulled out of its zone: back to the size it had before Window Zones placed it,
 -- under the cursor at the same relative spot of the titlebar.
 local function unsnap(w, cx)
   local s = snapped[w.address]

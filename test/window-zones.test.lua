@@ -1,5 +1,5 @@
--- lua test/perch.test.lua : checks the pure geometry without Hyprland.
-local M = dofile((arg[0]:match("^(.*)/test/[^/]+$") or ".") .. "/hypr/perch.lua")
+-- lua test/window-zones.test.lua : checks the pure geometry without Hyprland.
+local M = dofile((arg[0]:match("^(.*)/test/[^/]+$") or ".") .. "/hypr/window-zones.lua")
 
 local function eq(a, b, what)
   assert(M.json(a) == M.json(b), what .. ": " .. M.json(a) .. " ~= " .. M.json(b))

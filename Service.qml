@@ -5,9 +5,9 @@ import Quickshell.Hyprland
 import Quickshell.Wayland
 import qs.Commons
 
-// Loads hypr/perch.lua into Hyprland and draws what it reports while a window
+// Loads hypr/window-zones.lua into Hyprland and draws what it reports while a window
 // is dragged: the zone a drop would fill, and the layout panel under the bar.
-// It decides nothing itself; perch.lua sends monitor-local geometry.
+// It decides nothing itself; window-zones.lua sends monitor-local geometry.
 Item {
   id: root
 
@@ -21,15 +21,15 @@ Item {
   // Where the dock shows, or "" when it does not.
   property string dockEdge: ""
 
-  readonly property string luaPath: Qt.resolvedUrl("hypr/perch.lua").toString().replace(/^file:\/\//, "")
+  readonly property string luaPath: Qt.resolvedUrl("hypr/window-zones.lua").toString().replace(/^file:\/\//, "")
   readonly property string shellJson: (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/omarchy/shell.json"
-  // The dock reserves no space of its own, so Perch keeps windows clear of it.
+  // The dock reserves no space of its own, so Window Zones keeps windows clear of it.
   readonly property int dockSize: Math.round(36 * Style.fontScale) + Style.spacing.md * 2 + Style.spacing.xs
 
   function load() {
     // The path goes into Lua source, so it must be exactly this safe form.
     if (!/^[A-Za-z0-9_\/.\-]+$/.test(luaPath)) {
-      console.warn("perch: refusing to load", luaPath)
+      console.warn("window-zones: refusing to load", luaPath)
       return
     }
     // A load asked for while one runs follows it, so the newest settings win.
@@ -41,7 +41,7 @@ Item {
     root.seq = 0
     root.state = {}
     var dock = root.dockEdge ? "{ edge = \"" + root.dockEdge + "\", size = " + root.dockSize + " }" : "nil"
-    loader.command = ["hyprctl", "eval", "perch_gen = " + root.gen + " perch_dock = " + dock + " dofile(\"" + luaPath + "\")"]
+    loader.command = ["hyprctl", "eval", "window_zones_gen = " + root.gen + " window_zones_dock = " + dock + " dofile(\"" + luaPath + "\")"]
     loader.running = true
   }
 
@@ -74,7 +74,7 @@ Item {
     property bool loaded: false
     property bool again: false
     stdout: StdioCollector {
-      onStreamFinished: if (text.trim() !== "ok") console.warn("perch: hyprctl eval said:", text.trim())
+      onStreamFinished: if (text.trim() !== "ok") console.warn("window-zones: hyprctl eval said:", text.trim())
     }
     onExited: {
       loaded = true
@@ -94,10 +94,10 @@ Item {
   }
 
   // Stops only the Lua this instance loaded, never a newer one.
-  Component.onDestruction: if (gen) Quickshell.execDetached(["hyprctl", "eval", "if perch and perch.gen == " + gen + " then perch.stop() end"])
+  Component.onDestruction: if (gen) Quickshell.execDetached(["hyprctl", "eval", "if window_zones and window_zones.gen == " + gen + " then window_zones.stop() end"])
 
   IpcHandler {
-    target: "perch"
+    target: "window-zones"
 
     // Calls are spawned one by one and may arrive out of order: keep the newest.
     function show(gen: string, seq: string, json: string): void {
@@ -124,7 +124,7 @@ Item {
         anchors { top: true; bottom: true; left: true; right: true }
         exclusionMode: ExclusionMode.Ignore
         WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.namespace: "perch"
+        WlrLayershell.namespace: "window-zones"
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
         mask: Region {}
 

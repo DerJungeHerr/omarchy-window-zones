@@ -1,12 +1,14 @@
 {
   "schemaVersion": 1,
-  "id": "io.github.derjungeherr.perch",
-  "name": "Perch",
-  "version": "0.1.0",
+  "id": "io.github.derjungeherr.window-zones",
+  "name": "Window Zones",
+  "version": "0.2.0",
   "author": "DerJungeHerr",
   "license": "MIT",
-  "description": "Windows-style snapping for floating workspaces: drag a window to a screen edge for a half, or to the top centre for a panel of layouts and the scratchpad. Adds no key bindings.",
-  "kinds": ["service"],
+  "description": "A window manager add-on for floating workspaces, with snapping like Windows 11 snap layouts and FancyZones. Drag a window to a screen edge for a half, or to the top centre for a panel of zones (halves, thirds, quarters, full) and the scratchpad. Adds no key bindings.",
+  "kinds": [
+    "service"
+  ],
   "entryPoints": {
     "service": "Service.qml"
   }
