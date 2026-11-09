@@ -38,7 +38,7 @@ Remove it with `omarchy plugin remove io.github.derjungeherr.window-zones`.
 
 Window Zones puts a small grid icon on the bar. Left click opens its settings,
 right click turns snapping on or off. You can switch screen edges, the layout
-panel, fanning and peeking on or off, and set the windows per fan, the fan
+panel, fanning, peeking and focus follows mouse on or off, and set the windows per fan, the fan
 offset, the peek delay and the peek opacity. Changes apply at once.
 
 The values sit on the widget's entry in `~/.config/omarchy/shell.json`, so

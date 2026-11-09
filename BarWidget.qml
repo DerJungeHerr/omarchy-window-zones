@@ -12,7 +12,7 @@ Panel {
   implicitHeight: button.implicitHeight
 
   readonly property var defaults: ({
-    enabled: true, edges: true, panel: true, fan: true, peek: true,
+    enabled: true, edges: true, panel: true, fan: true, peek: true, hoverFocus: false,
     fanMax: 5, fanOffset: 24, peekDelay: 250, peekOpacity: 85
   })
 
@@ -20,7 +20,8 @@ Panel {
     { key: "edges", label: "Screen edges", description: "Drag to the left or right edge for a half" },
     { key: "panel", label: "Layout panel", description: "Drag under the clock for zones and the scratchpad" },
     { key: "fan", label: "Fan out shared zones", description: "Windows dropped on a taken zone fan out like cards" },
-    { key: "peek", label: "Peek in fans", description: "Rest on a covered window to see it" }
+    { key: "peek", label: "Peek in fans", description: "Rest on a covered window to see it" },
+    { key: "hoverFocus", label: "Focus follows mouse", description: "Hovering a window focuses it, like on tiled workspaces" }
   ]
 
   readonly property var sliders: [

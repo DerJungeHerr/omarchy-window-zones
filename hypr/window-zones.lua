@@ -182,13 +182,17 @@ local function opt(key, fallback)
   return v
 end
 
-local function eligible(w)
-  if not (w and w.mapped and w.floating and not w.pinned and w.fullscreen == 0 and not w.group) then return false end
-  if not w.workspace or w.workspace.special then return false end
+local function on_floating_workspace(w)
   for _, tag in pairs(w.tags or {}) do
     if tag == "omarchy-floating-workspace" then return true end
   end
   return false
+end
+
+local function eligible(w)
+  if not (w and w.mapped and w.floating and not w.pinned and w.fullscreen == 0 and not w.group) then return false end
+  if not w.workspace or w.workspace.special then return false end
+  return on_floating_workspace(w)
 end
 
 local function window(addr)
@@ -506,6 +510,29 @@ M.drag_timer = hl.timer(drag_tick, { timeout = DRAG_MS, type = "repeat" })
 M.drag_timer:set_enabled(false)
 M.idle_timer:set_enabled(ENABLED)
 
+-- Focus follows mouse on floating workspaces too. Omarchy turns it off there on
+-- every switch (workspace-modes.lua); these handlers run after Omarchy's and
+-- turn it back on.
+local HOVER_FOCUS = ENABLED and setting("hoverFocus", false)
+local function follow() hl.config({ input = { follow_mouse = 1 } }) end
+M.follow = {}
+if HOVER_FOCUS then
+  M.follow = { hl.on("workspace.active", follow), hl.on("monitor.focused", follow) }
+  follow()
+end
+
+-- Back to Omarchy's click-to-focus if the workspace in front floats.
+-- ponytail: an empty floating workspace can't be told from a tiled one; it keeps
+-- hover focus until the next switch to a tiled workspace and back.
+local function unfollow()
+  local ws = hl.get_active_workspace()
+  for _, w in ipairs(hl.get_windows()) do
+    if ws and w.workspace and w.workspace.id == ws.id and on_floating_workspace(w) then
+      return hl.config({ input = { follow_mouse = 0 } })
+    end
+  end
+end
+
 -- A closed window leaves its zone: the rest close up.
 M.closed = hl.on("window.close", function(w)
   local s = w and snapped[w.address]
@@ -516,6 +543,8 @@ end)
 
 function M.stop()
   M.closed:remove()
+  for _, sub in ipairs(M.follow) do sub:remove() end
+  if HOVER_FOCUS then unfollow() end
   unpeek(false)
   M.idle_timer:set_enabled(false)
   M.drag_timer:set_enabled(false)
