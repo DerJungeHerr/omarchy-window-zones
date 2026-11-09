@@ -19,6 +19,8 @@ local TOL = 2          -- px: how closely the window has to follow the cursor
 local STILL_MS = 120   -- stillness before the release probe
 local EDGE = 6         -- px: width of the left/right snap strips
 local HOT_HALF = 0.15  -- half-width of the top-centre hotspot, as part of the monitor width
+local FAN_X = 24       -- px: each window in a shared zone sits this far right of the one behind
+local FAN_MAX = 5      -- windows fanned out per zone; more start again at the back
 
 M.LAYOUTS = {
   { name = "Halves", cells = { { 0, 0, 1/2, 1 }, { 1/2, 0, 1, 1 } } },
@@ -91,6 +93,23 @@ function M.panel_hit(p, x, y)
     for j, c in ipairs(t.cells) do
       if inside(c, x, y) then return { layout = i, cell = j } end
     end
+  end
+end
+
+-- Window k (0 = back) of n sharing a zone: each a titlebar lower and FAN_X
+-- further right than the one behind, all shrunk so the fan fills the zone.
+function M.fan(zone, n, k, bar)
+  n = math.min(n, FAN_MAX)
+  k = k % FAN_MAX
+  return { x = zone.x + k * FAN_X, y = zone.y + k * bar,
+           w = zone.w - (n - 1) * FAN_X, h = zone.h - (n - 1) * bar }
+end
+
+-- The fan slot an outer box sits in within a zone, or nil.
+function M.fan_slot(zone, r, bar)
+  if r.x + r.w > zone.x + zone.w + TOL or r.y + r.h > zone.y + zone.h + TOL then return end
+  for k = 0, FAN_MAX - 1 do
+    if math.abs(r.x - (zone.x + k * FAN_X)) <= TOL and math.abs(r.y - (zone.y + k * bar)) <= TOL then return k end
   end
 end
 
@@ -179,24 +198,54 @@ end
 
 local function dispatch(d) pcall(hl.dispatch, d) end
 
--- Original sizes of windows Window Zones placed, so dragging one out gives it back.
+-- Windows Window Zones placed: their size before, the box they got, and their zone.
 local snapped = {}
 
-local function place(addr, box, bar)
-  -- ponytail: closed windows are pruned here, not on close. A reused address
-  -- only matters if the new window also has the snapped size (see unsnap).
-  for a in pairs(snapped) do
-    if not window(a) then snapped[a] = nil end
-  end
+local function place(addr, box, zone)
   local w = window(addr)
   if not w then return end
   local ww, wh = xy(w.size)
   if not snapped[addr] then snapped[addr] = { w = ww, h = wh } end
-  local target = { x = box.x, y = box.y + bar, w = box.w, h = box.h - bar }
-  snapped[addr].box = target
+  local target = { x = box.x, y = box.y + zone.bar, w = box.w, h = box.h - zone.bar }
+  snapped[addr].box, snapped[addr].zone = target, zone
   local win = "address:" .. addr
   dispatch(hl.dsp.window.resize({ window = win, x = target.w, y = target.h, relative = false }))
   dispatch(hl.dsp.window.move({ window = win, x = target.x, y = target.y }))
+end
+
+-- The windows already fanned out in a zone, back to front. Read from where the
+-- windows are, so it holds after a reload too.
+local function members(zone, skip)
+  local list = {}
+  for _, w in ipairs(hl.get_windows()) do
+    if w.address ~= skip and eligible(w) and w.workspace.id == zone.ws then
+      local x, y = xy(w.at)
+      local ww, wh = xy(w.size)
+      local k = M.fan_slot(zone, { x = x, y = y - zone.bar, w = ww, h = wh + zone.bar }, zone.bar)
+      if k then list[#list + 1] = { addr = w.address, k = k, recent = w.focus_history_id } end
+    end
+  end
+  table.sort(list, function(a, b)
+    if a.k ~= b.k then return a.k < b.k end
+    return a.recent > b.recent
+  end)
+  return list
+end
+
+-- Lay a zone's windows out as a fan. raise also restacks them back to front,
+-- which a drop wants and a window leaving the zone does not.
+local function arrange(zone, list, raise)
+  for i, m in ipairs(list) do
+    place(m.addr, M.fan(zone, #list, i - 1, zone.bar), zone)
+    if raise then dispatch(hl.dsp.window.alter_zorder({ window = "address:" .. m.addr, mode = "top" })) end
+  end
+end
+
+local function zone_of(d)
+  local out, inn = opt("general:gaps_out", 10), opt("general:gaps_in", 5)
+  local zone = M.cell(d.area, M.LAYOUTS[d.target.layout].cells[d.target.cell], out, inn)
+  zone.ws, zone.bar = d.ws, d.bar
+  return zone
 end
 
 local drag, last
@@ -213,8 +262,10 @@ local function finish(drop)
     snapped[d.addr] = nil
     dispatch(hl.dsp.window.move({ window = "address:" .. d.addr, workspace = "special:scratchpad", follow = false }))
   else
-    local out, inn = opt("general:gaps_out", 10), opt("general:gaps_in", 5)
-    place(d.addr, M.cell(d.area, layout.cells[d.target.cell], out, inn), d.bar)
+    local zone = zone_of(d)
+    local list = members(zone, d.addr)
+    list[#list + 1] = { addr = d.addr }
+    arrange(zone, list, true)
   end
 end
 
@@ -224,6 +275,7 @@ local function unsnap(w, cx)
   local s = snapped[w.address]
   if not s then return end
   snapped[w.address] = nil
+  if s.zone then arrange(s.zone, members(s.zone, w.address), false) end
   local wx, wy = xy(w.at)
   local ww, wh = xy(w.size)
   if not s.box or math.abs(ww - s.box.w) > TOL or math.abs(wh - s.box.h) > TOL then return end
@@ -235,7 +287,7 @@ end
 
 local function start(w, cx)
   unsnap(w, cx)
-  drag = { addr = w.address, still = 0, bar = opt("plugin:hyprbars:bar_height", 0) }
+  drag = { addr = w.address, ws = w.workspace.id, still = 0, bar = opt("plugin:hyprbars:bar_height", 0) }
   M.idle_timer:set_enabled(false)
   M.drag_timer:set_enabled(true)
 end
@@ -292,8 +344,10 @@ local function show(d)
   if d.target then
     state.hot = { layout = d.target.layout, cell = d.target.cell }
     if not M.LAYOUTS[d.target.layout].scratchpad then
-      local out, inn = opt("general:gaps_out", 10), opt("general:gaps_in", 5)
-      state.preview = local_rect(d, M.cell(d.area, M.LAYOUTS[d.target.layout].cells[d.target.cell], out, inn))
+      -- Where the window would land: in front of whatever the zone holds.
+      local zone = zone_of(d)
+      local n = #members(zone, d.addr) + 1
+      state.preview = local_rect(d, M.fan(zone, n, n - 1, d.bar))
     end
   end
   overlay(state)
@@ -357,7 +411,16 @@ M.idle_timer = hl.timer(idle_tick, { timeout = IDLE_MS, type = "repeat" })
 M.drag_timer = hl.timer(drag_tick, { timeout = DRAG_MS, type = "repeat" })
 M.drag_timer:set_enabled(false)
 
+-- A closed window leaves its zone: the rest close up.
+M.closed = hl.on("window.close", function(w)
+  local s = w and snapped[w.address]
+  if not s then return end
+  snapped[w.address] = nil
+  if s.zone then arrange(s.zone, members(s.zone, w.address), false) end
+end)
+
 function M.stop()
+  M.closed:remove()
   M.idle_timer:set_enabled(false)
   M.drag_timer:set_enabled(false)
   if drag then overlay(nil) end

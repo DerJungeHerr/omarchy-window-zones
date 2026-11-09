@@ -13,6 +13,9 @@ Windows 11 snap layouts and PowerToys FancyZones: drag a window, drop it into a 
   and the window fills it.
 - **Scratchpad.** The last tile in the panel sends the window to the scratchpad,
   like <kbd>Super</kbd> + <kbd>Alt</kbd> + <kbd>S</kbd>.
+- **Shared zones fan out.** Drop a window on a zone that is taken and the windows
+  fan out like cards, each a titlebar lower and a little to the right, up to five.
+  When one is dragged out or closed, the rest close up.
 - **Drag out.** Pulling a placed window away gives it back its earlier size.
 - **No key bindings.** Window Zones adds none, so every Omarchy shortcut keeps working.
 

@@ -39,6 +39,18 @@ local s = p.tiles[#p.tiles].cells[1]
 eq(M.panel_hit(p, s.x + 1, s.y + 1), { cell = 1, layout = #M.LAYOUTS }, "hit scratchpad")
 assert(M.panel_hit(p, p.x + 1, p.y + 1) == nil, "panel padding hits nothing")
 
+-- Three windows in the left half: each a titlebar lower and 24 px further right,
+-- the front one ending exactly at the zone's corner.
+local fan = { M.fan(left, 3, 0, 30), M.fan(left, 3, 1, 30), M.fan(left, 3, 2, 30) }
+eq(fan[1], { x = 10, y = 36, w = 1657, h = 1334 }, "fan back")
+eq(fan[3], { x = 58, y = 96, w = 1657, h = 1334 }, "fan front")
+assert(fan[3].x + fan[3].w == left.x + left.w and fan[3].y + fan[3].h == left.y + left.h, "fan fills the zone")
+eq(M.fan(left, 1, 0, 30), left, "one window fills the zone")
+assert(M.fan_slot(left, fan[2], 30) == 1, "slot of the middle window")
+assert(M.fan_slot(left, { x = 300, y = 300, w = 400, h = 300 }, 30) == nil, "a loose window is no member")
+assert(M.fan_slot(left, { x = 10, y = 36, w = 3000, h = 300 }, 30) == nil, "a window wider than the zone is no member")
+eq(M.fan(left, 7, 5, 30), M.fan(left, 5, 0, 30), "the sixth window starts again at the back")
+
 assert(M.json({ a = { 1, 2 }, b = "x", c = true }) == '{"a":[1,2],"b":"x","c":true}', "json")
 assert(M.json({ x = 1.6 }) == '{"x":2}', "json rounds numbers")
 assert(M.json("a\"b\\c") == '"a\\u0022b\\u005cc"', "json escapes")
