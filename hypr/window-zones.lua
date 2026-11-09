@@ -21,6 +21,8 @@ local EDGE = 6         -- px: width of the left/right snap strips
 local HOT_HALF = 0.15  -- half-width of the top-centre hotspot, as part of the monitor width
 local FAN_X = 24       -- px: each window in a shared zone sits this far right of the one behind
 local FAN_MAX = 5      -- windows fanned out per zone; more start again at the back
+local PEEK_MS = 250    -- hover over a covered window in a fan this long to peek at it
+local PEEK_OPACITY = 0.85
 
 M.LAYOUTS = {
   { name = "Halves", cells = { { 0, 0, 1/2, 1 }, { 1/2, 0, 1, 1 } } },
@@ -222,7 +224,10 @@ local function members(zone, skip)
       local x, y = xy(w.at)
       local ww, wh = xy(w.size)
       local k = M.fan_slot(zone, { x = x, y = y - zone.bar, w = ww, h = wh + zone.bar }, zone.bar)
-      if k then list[#list + 1] = { addr = w.address, k = k, recent = w.focus_history_id } end
+      if k then
+        list[#list + 1] = { addr = w.address, k = k, recent = w.focus_history_id,
+                            box = { x = x, y = y - zone.bar, w = ww, h = wh + zone.bar } }
+      end
     end
   end
   table.sort(list, function(a, b)
@@ -238,6 +243,78 @@ local function arrange(zone, list, raise)
   for i, m in ipairs(list) do
     place(m.addr, M.fan(zone, #list, i - 1, zone.bar), zone)
     if raise then dispatch(hl.dsp.window.alter_zorder({ window = "address:" .. m.addr, mode = "top" })) end
+  end
+end
+
+-- Peeking: hovering a covered window of a fan brings it up, see-through and
+-- without focus. A click keeps it there; moving off puts everything back.
+local peek, hover
+
+local function set_opacity(addr, v)
+  dispatch(hl.dsp.window.set_prop({ window = "address:" .. addr, prop = "opacity", value = tostring(v) }))
+end
+
+local function raise(addr)
+  dispatch(hl.dsp.window.alter_zorder({ window = "address:" .. addr, mode = "top" }))
+end
+
+local function unpeek(keep)
+  local p = peek
+  peek = nil
+  if not p then return end
+  set_opacity(p.addr, 1)
+  if not keep then
+    for _, a in ipairs(p.above) do raise(a) end
+  end
+end
+
+-- The fan under the cursor, and of its windows the one on top there:
+-- the most recently focused of those that hold the cursor.
+local function fan_at(x, y)
+  for _, s in pairs(snapped) do
+    if s.zone and inside(s.zone, x, y) then
+      local list = members(s.zone)
+      if #list < 2 then return end
+      local top, front
+      for _, m in ipairs(list) do
+        if inside(m.box, x, y) and (not top or m.recent < top.recent) then top = m end
+        if not front or m.recent < front.recent then front = m end
+      end
+      return list, top, front
+    end
+  end
+end
+
+local function start_peek(list, m)
+  -- What covered it, least recent first: raising them in this order restores the stack.
+  local above = {}
+  for _, o in ipairs(list) do
+    if o.recent < m.recent then above[#above + 1] = o end
+  end
+  table.sort(above, function(a, b) return a.recent > b.recent end)
+  for i, o in ipairs(above) do above[i] = o.addr end
+  peek = { addr = m.addr, box = m.box, above = above }
+  raise(m.addr)
+  set_opacity(m.addr, PEEK_OPACITY)
+end
+
+local function hover_tick(c)
+  if peek then
+    local active = hl.get_active_window()
+    if active and active.address == peek.addr then return unpeek(true) end
+    if not window(peek.addr) or not inside(peek.box, c.x, c.y) then unpeek(false) end
+    return
+  end
+  local list, top, front = fan_at(c.x, c.y)
+  if not top or top == front then hover = nil return end
+  if hover and hover.addr == top.addr then
+    hover.ms = hover.ms + IDLE_MS
+    if hover.ms >= PEEK_MS then
+      hover = nil
+      start_peek(list, top)
+    end
+  else
+    hover = { addr = top.addr, ms = 0 }
   end
 end
 
@@ -295,6 +372,7 @@ end
 local function idle_tick()
   local w = hl.get_active_window()
   local c = hl.get_cursor_pos()
+  if c then hover_tick(c) end
   if not (w and c and eligible(w)) then last = nil return end
   local wx, wy = xy(w.at)
   local ww, wh = xy(w.size)
@@ -421,6 +499,7 @@ end)
 
 function M.stop()
   M.closed:remove()
+  unpeek(false)
   M.idle_timer:set_enabled(false)
   M.drag_timer:set_enabled(false)
   if drag then overlay(nil) end

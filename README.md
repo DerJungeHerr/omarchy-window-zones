@@ -16,6 +16,8 @@ Windows 11 snap layouts and PowerToys FancyZones: drag a window, drop it into a 
 - **Shared zones fan out.** Drop a window on a zone that is taken and the windows
   fan out like cards, each a titlebar lower and a little to the right, up to five.
   When one is dragged out or closed, the rest close up.
+- **Peek.** Rest the pointer on a covered window in a fan and it comes up,
+  see-through and without taking focus. Click to keep it, move away to put it back.
 - **Drag out.** Pulling a placed window away gives it back its earlier size.
 - **No key bindings.** Window Zones adds none, so every Omarchy shortcut keeps working.
 
