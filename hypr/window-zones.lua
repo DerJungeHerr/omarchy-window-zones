@@ -521,16 +521,24 @@ if HOVER_FOCUS then
   follow()
 end
 
+-- Whether a workspace floats, decided the way Omarchy decides it: its own mode
+-- from ~/.local/state/omarchy/workspace-layouts/<id>.lua, else the default there.
+local function workspace_floats(id)
+  local dir = (os.getenv("XDG_STATE_HOME") or (os.getenv("HOME") .. "/.local/state")) .. "/omarchy/workspace-layouts/"
+  local function read(name, pattern)
+    local f = io.open(dir .. name .. ".lua")
+    if not f then return end
+    local v = f:read("a"):match(pattern)
+    f:close()
+    return v
+  end
+  return (read(tostring(id), 'mode = "(%a+)"') or read("default", 'default = "(%a+)"')) == "floating"
+end
+
 -- Back to Omarchy's click-to-focus if the workspace in front floats.
--- ponytail: an empty floating workspace can't be told from a tiled one; it keeps
--- hover focus until the next switch to a tiled workspace and back.
 local function unfollow()
   local ws = hl.get_active_workspace()
-  for _, w in ipairs(hl.get_windows()) do
-    if ws and w.workspace and w.workspace.id == ws.id and on_floating_workspace(w) then
-      return hl.config({ input = { follow_mouse = 0 } })
-    end
-  end
+  if ws and workspace_floats(ws.id) then hl.config({ input = { follow_mouse = 0 } }) end
 end
 
 -- A closed window leaves its zone: the rest close up.
