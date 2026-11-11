@@ -248,6 +248,12 @@ local function place(addr, box, zone)
   local target = { x = box.x, y = box.y + zone.bar, w = box.w, h = box.h - zone.bar }
   snapped[addr].box, snapped[addr].zone = target, zone
   local win = "address:" .. addr
+  -- A window dragged near another monitor may have been handed to it on the
+  -- way: put it on the zone's workspace before placing it there.
+  if w.workspace and w.workspace.id ~= zone.ws then
+    dispatch(hl.dsp.window.move({ window = win, workspace = tostring(zone.ws), follow = false }))
+    dispatch(hl.dsp.focus({ window = win }))
+  end
   dispatch(hl.dsp.window.resize({ window = win, x = target.w, y = target.h, relative = false }))
   dispatch(hl.dsp.window.move({ window = win, x = target.x, y = target.y }))
 end
@@ -431,7 +437,14 @@ local function target_at(d, x, y)
   d.monitor, d.mx, d.my = m.name, mx, my
   d.area = M.area(m, dock)
   -- Edges and corners first: on a narrow screen the panel reaches the corners.
+  d.ws = m.active_workspace and m.active_workspace.id or d.ws
   local edge = EDGES and M.edge_hit(mx, my, mw, mh, x, y)
+  -- Where another monitor carries on past a side, the cursor is crossing over:
+  -- no half there, as on Windows.
+  if edge and edge.layout == 1 then
+    local beyond = hl.get_monitor_at(edge.cell == 1 and mx - 1 or mx + mw, y)
+    if beyond and beyond.name ~= m.name then edge = nil end
+  end
   if edge then
     d.panel = nil
     return edge
