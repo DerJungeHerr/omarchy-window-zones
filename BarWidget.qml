@@ -13,11 +13,11 @@ Panel {
 
   readonly property var defaults: ({
     enabled: true, edges: true, panel: true, fan: true, peek: true, hoverFocus: false,
-    fanMax: 5, fanOffset: 24, peekDelay: 250, peekOpacity: 85
+    fanMax: 5, fanOffset: 24, peekDelay: 250, peekOpacity: 85, newWindowSize: 100
   })
 
   readonly property var switches: [
-    { key: "edges", label: "Screen edges", description: "Drag to the left or right edge for a half" },
+    { key: "edges", label: "Screen edges", description: "Drag to the left or right edge for a half, into a corner for a quarter" },
     { key: "panel", label: "Layout panel", description: "Drag under the clock for zones and the scratchpad" },
     { key: "fan", label: "Fan out shared zones", description: "Windows dropped on a taken zone fan out like cards" },
     { key: "peek", label: "Peek in fans", description: "Rest on a covered window to see it" },
@@ -28,7 +28,8 @@ Panel {
     { key: "fanMax", label: "Windows per fan", min: 2, max: 8, step: 1, unit: "" },
     { key: "fanOffset", label: "Fan offset", min: 8, max: 60, step: 4, unit: " px" },
     { key: "peekDelay", label: "Peek delay", min: 100, max: 1000, step: 50, unit: " ms" },
-    { key: "peekOpacity", label: "Peek opacity", min: 40, max: 100, step: 5, unit: " %" }
+    { key: "peekOpacity", label: "Peek opacity", min: 40, max: 100, step: 5, unit: " %" },
+    { key: "newWindowSize", label: "New window size", min: 50, max: 150, step: 5, unit: " %" }
   ]
 
   function value(key) { return setting(key, defaults[key]) }

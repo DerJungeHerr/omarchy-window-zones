@@ -102,7 +102,8 @@ Item {
     stdout: StdioCollector {
       onStreamFinished: if (text.trim() !== "ok") console.warn("window-zones: hyprctl eval said:", text.trim())
     }
-    onExited: {
+    onExited: function(exitCode) {
+      if (exitCode !== 0) console.warn("window-zones: hyprctl eval exited with", exitCode)
       loaded = true
       if (again) {
         again = false

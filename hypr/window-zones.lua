@@ -17,7 +17,8 @@ local M = {}
 local IDLE_MS, DRAG_MS = 50, 16
 local TOL = 2          -- px: how closely the window has to follow the cursor
 local STILL_MS = 120   -- stillness before the release probe
-local EDGE = 6         -- px: width of the left/right snap strips
+local EDGE = 6         -- px: width of the snap strips along the screen edges
+local CORNER = 48      -- px: how far from a corner along an edge still means that corner
 local HOT_HALF = 0.15  -- half-width of the top-centre hotspot, as part of the monitor width
 -- Defaults for what the bar widget's settings can change (see the runtime part).
 local FAN_X = 24       -- px: each window in a shared zone sits this far right of the one behind
@@ -32,8 +33,13 @@ M.LAYOUTS = {
   { name = "Wide right", cells = { { 0, 0, 1/3, 1 }, { 1/3, 0, 1, 1 } } },
   { name = "Quarters", cells = { { 0, 0, 1/2, 1/2 }, { 1/2, 0, 1, 1/2 }, { 0, 1/2, 1/2, 1 }, { 1/2, 1/2, 1, 1 } } },
   { name = "Full", cells = { { 0, 0, 1, 1 } } },
+  { name = "Centre", cells = { { 0, 0, 1/4, 1 }, { 1/4, 0, 3/4, 1 }, { 3/4, 0, 1, 1 } } },
   { name = "Scratchpad", scratchpad = true, cells = { { 0, 0, 1, 1 } } },
 }
+
+for i, layout in ipairs(M.LAYOUTS) do
+  if layout.name == "Quarters" then M.QUARTERS = i end
+end
 
 -- Usable box of a monitor in global logical coordinates: minus the bar and
 -- other reserved edges, and minus the dock, which reserves nothing itself.
@@ -116,14 +122,30 @@ function M.fan_slot(zone, r, bar)
   end
 end
 
-function M.edge_hit(mon_x, mon_w, x)
-  if x < mon_x + EDGE then return { layout = 1, cell = 1 } end
-  if x >= mon_x + mon_w - EDGE then return { layout = 1, cell = 2 } end
+-- At a screen edge: a quarter near a corner, else a half at the left or right.
+function M.edge_hit(mx, my, mw, mh, x, y)
+  local left, right = x < mx + EDGE, x >= mx + mw - EDGE
+  local top, bottom = y < my + EDGE, y >= my + mh - EDGE
+  local near_left, near_right = x < mx + CORNER, x >= mx + mw - CORNER
+  local near_top, near_bottom = y < my + CORNER, y >= my + mh - CORNER
+  if (left or right or top or bottom) and (near_left or near_right) and (near_top or near_bottom) then
+    return { layout = M.QUARTERS, cell = (near_left and 1 or 2) + (near_top and 0 or 2) }
+  end
+  if left then return { layout = 1, cell = 1 } end
+  if right then return { layout = 1, cell = 2 } end
 end
 
 -- The bar's strip above the usable area, or a thin strip when nothing is reserved on top.
 function M.in_hotspot(a, mon_x, mon_y, mon_w, x, y)
   return y < math.max(a.y, mon_y + EDGE) and math.abs(x - (mon_x + mon_w / 2)) <= mon_w * HOT_HALF
+end
+
+-- Window rule expressions for Omarchy's open size scaled to pct %, never more
+-- than 90 % of the monitor.
+function M.new_size(pct)
+  local f = string.format("%.2f", pct / 100)
+  return "min(min(1100,monitor_w*0.64)*" .. f .. ",monitor_w*0.9)",
+         "min(min(760,monitor_h*0.68)*" .. f .. ",monitor_h*0.9)"
 end
 
 -- Minimal JSON for the overlay: numbers, strings without quotes, arrays, objects.
@@ -152,7 +174,10 @@ if not hl then return M end
 
 -- Runtime -----------------------------------------------------------------
 
-if window_zones and window_zones.stop then window_zones.stop() end
+-- A settings change loads this file again into the same Lua state; the new load
+-- takes over what the previous one knew about placed windows.
+local previous = window_zones
+if previous and previous.stop then previous.stop() end
 window_zones = M
 
 local gen = math.floor(tonumber(window_zones_gen) or 0)
@@ -164,14 +189,19 @@ local cfg = type(window_zones_settings) == "table" and window_zones_settings or 
 local function setting(key, default)
   local v = cfg[key]
   if type(v) ~= type(default) then return default end
+  if type(v) == "number" and (v ~= v or v == math.huge or v == -math.huge) then return default end
   return v
 end
+-- Numbers stay within the popup's ranges even when shell.json is edited by hand:
+-- a huge fan would mean long loops inside the compositor.
+local function within(key, default, lo, hi) return math.min(hi, math.max(lo, math.floor(setting(key, default)))) end
 local ENABLED, EDGES, PANEL, FAN, PEEK =
   setting("enabled", true), setting("edges", true), setting("panel", true), setting("fan", true), setting("peek", true)
-FAN_MAX = math.max(1, math.floor(setting("fanMax", FAN_MAX)))
-FAN_X = math.max(0, math.floor(setting("fanOffset", FAN_X)))
-PEEK_MS = math.max(0, setting("peekDelay", PEEK_MS))
-PEEK_OPACITY = math.min(1, math.max(0.1, setting("peekOpacity", PEEK_OPACITY * 100) / 100))
+FAN_MAX = within("fanMax", FAN_MAX, 1, 8)
+FAN_X = within("fanOffset", FAN_X, 0, 60)
+PEEK_MS = within("peekDelay", PEEK_MS, 0, 2000)
+PEEK_OPACITY = within("peekOpacity", PEEK_OPACITY * 100, 10, 100) / 100
+local NEW_SIZE = within("newWindowSize", 100, 50, 150)
 
 local function xy(t) return t.x or t[1], t.y or t[2] end
 
@@ -220,7 +250,8 @@ end
 local function dispatch(d) pcall(hl.dispatch, d) end
 
 -- Windows Window Zones placed: their size before, the box they got, and their zone.
-local snapped = {}
+local snapped = previous and previous.snapped or {}
+M.snapped = snapped
 
 local function place(addr, box, zone)
   local w = window(addr)
@@ -228,8 +259,15 @@ local function place(addr, box, zone)
   local ww, wh = xy(w.size)
   if not snapped[addr] then snapped[addr] = { w = ww, h = wh } end
   local target = { x = box.x, y = box.y + zone.bar, w = box.w, h = box.h - zone.bar }
+  if target.w < 50 or target.h < 50 then return end
   snapped[addr].box, snapped[addr].zone = target, zone
   local win = "address:" .. addr
+  -- A window dragged near another monitor may have been handed to it on the
+  -- way: put it on the zone's workspace before placing it there.
+  if w.workspace and w.workspace.id ~= zone.ws then
+    dispatch(hl.dsp.window.move({ window = win, workspace = tostring(zone.ws), follow = false }))
+    dispatch(hl.dsp.focus({ window = win }))
+  end
   dispatch(hl.dsp.window.resize({ window = win, x = target.w, y = target.h, relative = false }))
   dispatch(hl.dsp.window.move({ window = win, x = target.x, y = target.y }))
 end
@@ -389,7 +427,21 @@ local function start(w, cx)
   M.drag_timer:set_enabled(true)
 end
 
+-- Seconds between ticks mean the machine slept (suspend, hibernate) or the
+-- compositor stalled: nothing seen before that can be trusted.
+local tick_at = os.time()
+local function woke()
+  local now = os.time()
+  local slept = now - tick_at >= 2
+  tick_at = now
+  return slept
+end
+
 local function idle_tick()
+  if woke() then
+    last, hover = nil, nil
+    return
+  end
   local w = hl.get_active_window()
   local c = hl.get_cursor_pos()
   if c then hover_tick(c) end
@@ -409,9 +461,27 @@ end
 local function target_at(d, x, y)
   local m = hl.get_monitor_at(x, y)
   if not m then return end
-  local mx, my, mw = monitor_box(m)
+  local mx, my, mw, mh = monitor_box(m)
   d.monitor, d.mx, d.my = m.name, mx, my
   d.area = M.area(m, dock)
+  if not m.active_workspace then return end
+  d.ws = m.active_workspace.id
+  -- Edges and corners first: on a narrow screen the panel reaches the corners.
+  local edge = EDGES and M.edge_hit(mx, my, mw, mh, x, y)
+  -- Where another monitor carries on past a side, the cursor is crossing over:
+  -- no half there, as on Windows.
+  if edge and edge.layout == 1 then
+    local bx = edge.cell == 1 and mx - 1 or mx + mw
+    local beyond = hl.get_monitor_at(bx, y)
+    if beyond and beyond.name ~= m.name then
+      local ox, oy, ow, oh = monitor_box(beyond)
+      if bx >= ox and bx < ox + ow and y >= oy and y < oy + oh then edge = nil end
+    end
+  end
+  if edge then
+    d.panel = nil
+    return edge
+  end
   if d.panel and d.panel_monitor == m.name and inside(d.panel, x, y, 40) then
     return M.panel_hit(d.panel, x, y)
   end
@@ -420,7 +490,6 @@ local function target_at(d, x, y)
     d.panel, d.panel_monitor = M.panel(d.area, mx, mw), m.name
     return nil
   end
-  return EDGES and M.edge_hit(mx, mw, x) or nil
 end
 
 -- The overlay works in monitor-local coordinates.
@@ -457,6 +526,8 @@ end
 
 local function drag_tick()
   local d = drag
+  if not d then return end
+  if woke() then return finish(false) end
   local w = window(d.addr)
   local c = hl.get_cursor_pos()
   if not (w and c and eligible(w)) then return finish(false) end
@@ -488,6 +559,7 @@ local function drag_tick()
       -- Without a target a drop changes nothing, so only then is the release worth a probe.
       if d.still >= STILL_MS and d.target then
         local m = hl.get_monitor_at(c.x, c.y)
+        if not m then return finish(false) end
         local mx, _, mw = monitor_box(m)
         local step = (c.x >= mx + mw - 2) and -1 or 1
         d.probe = { cx = c.x + step, cy = c.y, wx = wx, dx = step }
@@ -502,53 +574,123 @@ local function drag_tick()
 
   local before = key(d)
   d.target = target_at(d, c.x, c.y)
-  if key(d) ~= before then show(d) end
+  if key(d) ~= before then d.dirty = true end
+  -- Each overlay update spawns a process: at most one per three ticks (~50 ms).
+  d.since = (d.since or 0) + 1
+  if d.dirty and d.since >= 3 then
+    d.dirty, d.since = false, 0
+    show(d)
+  end
 end
 
-M.idle_timer = hl.timer(idle_tick, { timeout = IDLE_MS, type = "repeat" })
-M.drag_timer = hl.timer(drag_tick, { timeout = DRAG_MS, type = "repeat" })
+-- Everything Hyprland calls back into goes through safe(): this code runs inside
+-- the compositor, so an error must not repeat on every tick. The first one stops
+-- Window Zones, is logged once and announced once; a config reload brings it back.
+local failed = false
+local function safe(fn)
+  return function(...)
+    if failed then return end
+    local ok, err = pcall(fn, ...)
+    if ok then return end
+    failed = true
+    pcall(M.stop)
+    local f = io.open((os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/window-zones-error.log", "a")
+    if f then
+      f:write(os.date("%F %T "), tostring(err), "\n")
+      f:close()
+    end
+    hl.exec_cmd("notify-send -a 'Window Zones' 'Window Zones stopped' 'An internal error turned it off; it comes back with the next config reload. Details: $XDG_RUNTIME_DIR/window-zones-error.log'")
+  end
+end
+
+-- Timers can't be removed, so a Lua state gets two, whatever the number of loads
+-- (every settings change is one); they call into the current load.
+if not window_zones_timers then
+  window_zones_timers = {
+    idle = hl.timer(function() if window_zones and window_zones.idle_tick then window_zones.idle_tick() end end,
+      { timeout = IDLE_MS, type = "repeat" }),
+    drag = hl.timer(function() if window_zones and window_zones.drag_tick then window_zones.drag_tick() end end,
+      { timeout = DRAG_MS, type = "repeat" }),
+  }
+end
+M.idle_tick, M.drag_tick = safe(idle_tick), safe(drag_tick)
+M.idle_timer, M.drag_timer = window_zones_timers.idle, window_zones_timers.drag
 M.drag_timer:set_enabled(false)
 M.idle_timer:set_enabled(ENABLED)
+
+-- New windows on floating workspaces: Omarchy opens them at a fixed size and
+-- tags them; this later rule on that tag scales the size and keeps them centred.
+-- At 100 % no rule is added, so stock Omarchy applies.
+local NEW_SIZE_RULE = "window-zones-new-size"
+if ENABLED and NEW_SIZE ~= 100 then
+  local w, h = M.new_size(NEW_SIZE)
+  hl.window_rule({
+    name = NEW_SIZE_RULE,
+    enabled = true,
+    match = { tag = "omarchy-mode-opened" },
+    size = w .. " " .. h,
+    move = "(monitor_w-(" .. w .. "))/2 (monitor_h-(" .. h .. "))/2",
+  })
+end
 
 -- Focus follows mouse on floating workspaces too. Omarchy turns it off there on
 -- every switch (workspace-modes.lua); these handlers run after Omarchy's and
 -- turn it back on.
 local HOVER_FOCUS = ENABLED and setting("hoverFocus", false)
-local function follow() hl.config({ input = { follow_mouse = 1 } }) end
+local follow = safe(function() hl.config({ input = { follow_mouse = 1 } }) end)
 M.follow = {}
 if HOVER_FOCUS then
   M.follow = { hl.on("workspace.active", follow), hl.on("monitor.focused", follow) }
   follow()
 end
 
--- Back to Omarchy's click-to-focus if the workspace in front floats.
--- ponytail: an empty floating workspace can't be told from a tiled one; it keeps
--- hover focus until the next switch to a tiled workspace and back.
-local function unfollow()
-  local ws = hl.get_active_workspace()
-  for _, w in ipairs(hl.get_windows()) do
-    if ws and w.workspace and w.workspace.id == ws.id and on_floating_workspace(w) then
-      return hl.config({ input = { follow_mouse = 0 } })
-    end
+-- Whether a workspace floats, decided the way Omarchy decides it: its own mode
+-- from ~/.local/state/omarchy/workspace-layouts/<id>.lua, else the default there.
+local function workspace_floats(id)
+  local dir = (os.getenv("XDG_STATE_HOME") or (os.getenv("HOME") .. "/.local/state")) .. "/omarchy/workspace-layouts/"
+  local function read(name, pattern)
+    local f = io.open(dir .. name .. ".lua")
+    if not f then return end
+    local v = (f:read(4096) or ""):match(pattern)
+    f:close()
+    return v
   end
+  return (read(tostring(id), 'mode = "(%a+)"') or read("default", 'default = "(%a+)"')) == "floating"
 end
 
--- A closed window leaves its zone: the rest close up.
-M.closed = hl.on("window.close", function(w)
+-- Back to Omarchy's click-to-focus if the workspace in front floats.
+local function unfollow()
+  local ws = hl.get_active_workspace()
+  if ws and workspace_floats(ws.id) then hl.config({ input = { follow_mouse = 0 } }) end
+end
+
+-- A closed window leaves its zone: the rest close up. Moving windows from inside
+-- a Hyprland event can hit it mid-teardown (Omarchy defers the same way), so the
+-- re-arrange runs from a one-shot timer.
+M.closed = hl.on("window.close", safe(function(w)
   local s = w and snapped[w.address]
   if not s then return end
   snapped[w.address] = nil
-  if s.zone then arrange(s.zone, members(s.zone, w.address), false) end
-end)
+  local addr = w.address
+  if s.zone then
+    hl.timer(safe(function() arrange(s.zone, members(s.zone, addr), false) end), { timeout = 1, type = "oneshot" })
+  end
+end))
 
+-- Timers first, then each step on its own, so one failing step can't keep the
+-- rest from running.
 function M.stop()
-  M.closed:remove()
-  for _, sub in ipairs(M.follow) do sub:remove() end
-  if HOVER_FOCUS then unfollow() end
-  unpeek(false)
-  M.idle_timer:set_enabled(false)
-  M.drag_timer:set_enabled(false)
-  if drag then overlay(nil) end
+  M.idle_tick, M.drag_tick = nil, nil
+  pcall(M.idle_timer.set_enabled, M.idle_timer, false)
+  pcall(M.drag_timer.set_enabled, M.drag_timer, false)
+  for _, step in ipairs({
+    function() if NEW_SIZE ~= 100 then hl.window_rule({ name = NEW_SIZE_RULE, enabled = false }) end end,
+    function() M.closed:remove() end,
+    function() for _, subscription in ipairs(M.follow) do subscription:remove() end end,
+    function() if HOVER_FOCUS then unfollow() end end,
+    function() unpeek(false) end,
+    function() if drag then overlay(nil) end end,
+  }) do pcall(step) end
   drag = nil
 end
 

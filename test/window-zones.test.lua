@@ -22,9 +22,22 @@ eq(left, { x = 10, y = 36, w = 1705, h = 1394 }, "left half")
 eq(right, { x = 1725, y = 36, w = 1705, h = 1394 }, "right half")
 assert(right.x - (left.x + left.w) == 10, "gap between halves")
 
-assert(M.edge_hit(0, 3440, 2).cell == 1, "left edge")
-assert(M.edge_hit(0, 3440, 3437).cell == 2, "right edge")
-assert(M.edge_hit(0, 3440, 1700) == nil, "middle is no edge")
+local function hit(x, y, mx, my, mw, mh) return M.edge_hit(mx or 0, my or 0, mw or 3440, mh or 1440, x, y) end
+eq(hit(2, 700), { cell = 1, layout = 1 }, "left edge")
+eq(hit(3437, 700), { cell = 2, layout = 1 }, "right edge")
+assert(hit(1700, 700) == nil, "middle is no edge")
+assert(hit(1720, 2) == nil, "top centre is the panel's, not an edge")
+local Q = M.QUARTERS
+eq(hit(0, 0), { cell = 1, layout = Q }, "top-left corner")
+eq(hit(3439, 0), { cell = 2, layout = Q }, "top-right corner")
+eq(hit(0, 1439), { cell = 3, layout = Q }, "bottom-left corner")
+eq(hit(3439, 1439), { cell = 4, layout = Q }, "bottom-right corner")
+eq(hit(0, 47), { cell = 1, layout = Q }, "47 px from the corner is still the corner")
+eq(hit(0, 48), { cell = 1, layout = 1 }, "48 px from the corner is the side again")
+eq(hit(47, 0), { cell = 1, layout = Q }, "along the top edge near the corner")
+assert(hit(48, 0) == nil, "along the top edge away from the corner")
+eq(hit(3440 + 1, 744 + 1, 3440, 744, 1440, 900), { cell = 1, layout = Q }, "corner of an offset monitor")
+eq(hit(3440 + 1439, 744 + 899, 3440, 744, 1440, 900), { cell = 4, layout = Q }, "far corner of an offset monitor")
 
 assert(M.in_hotspot(a, 0, 0, 3440, 1720, 5), "top centre")
 assert(not M.in_hotspot(a, 0, 0, 3440, 200, 5), "top left corner is not the hotspot")
@@ -50,6 +63,22 @@ assert(M.fan_slot(left, fan[2], 30) == 1, "slot of the middle window")
 assert(M.fan_slot(left, { x = 300, y = 300, w = 400, h = 300 }, 30) == nil, "a loose window is no member")
 assert(M.fan_slot(left, { x = 10, y = 36, w = 3000, h = 300 }, 30) == nil, "a window wider than the zone is no member")
 eq(M.fan(left, 7, 5, 30), M.fan(left, 5, 0, 30), "the sixth window starts again at the back")
+
+-- Centre layout: a half in the middle, a quarter either side, the usual gaps.
+local centre
+for i, l in ipairs(M.LAYOUTS) do if l.name == "Centre" then centre = l end end
+assert(centre, "centre layout exists")
+local mid = M.cell(a, centre.cells[2], 10, 5)
+eq(mid, { x = 865, y = 36, w = 1710, h = 1394 }, "centre cell")
+assert(M.LAYOUTS[#M.LAYOUTS].scratchpad, "scratchpad stays last")
+for _, w in ipairs({ 720, 1440, 3440 }) do
+  local pw = M.panel(M.area({ x = 0, y = 0, width = w, height = 900, scale = 1, transform = 0, reserved = { top = 26 } }), 0, w)
+  assert(pw.x >= 0 and pw.x + pw.w <= w, "panel fits " .. w .. " px")
+end
+
+local nw, nh = M.new_size(150)
+assert(nw == "min(min(1100,monitor_w*0.64)*1.50,monitor_w*0.9)", "new window width rule: " .. nw)
+assert(nh == "min(min(760,monitor_h*0.68)*1.50,monitor_h*0.9)", "new window height rule: " .. nh)
 
 assert(M.json({ a = { 1, 2 }, b = "x", c = true }) == '{"a":[1,2],"b":"x","c":true}', "json")
 assert(M.json({ x = 1.6 }) == '{"x":2}', "json rounds numbers")

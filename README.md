@@ -5,11 +5,13 @@ Windows 11 snap layouts and PowerToys FancyZones: drag a window, drop it into a 
 
 ![The layout panel under the bar, a cell lit, the preview behind it](preview.png)
 
-- **Screen edges.** Drag a window to the left or right edge: a preview shows
-  the half it will take, and dropping puts it there. Halves keep Omarchy's gaps,
+- **Screen edges and corners.** Drag a window to the left or right edge: a preview
+  shows the half it will take, and dropping puts it there. Into a corner, it takes
+  that quarter. Halves keep Omarchy's gaps,
   so corners and shadows stay visible.
 - **Layout panel.** Drag a window to the top centre, under the clock: a panel
-  drops down with layouts (halves, thirds, ⅔ + ⅓, quarters, full). Drop on a cell
+  drops down with layouts (halves, thirds, ⅔ + ⅓, quarters, full, and a 25 / 50 / 25
+  centre for wide screens). Drop on a cell
   and the window fills it.
 - **Scratchpad.** The last tile in the panel sends the window to the scratchpad,
   like <kbd>Super</kbd> + <kbd>Alt</kbd> + <kbd>S</kbd>.
@@ -38,7 +40,8 @@ Remove it with `omarchy plugin remove io.github.derjungeherr.window-zones`.
 
 Window Zones puts a small grid icon on the bar. Left click opens its settings,
 right click turns snapping on or off. You can switch screen edges, the layout
-panel, fanning, peeking and focus follows mouse on or off, and set the windows per fan, the fan
+panel, fanning, peeking and focus follows mouse on or off, scale the size
+new windows open at, and set the windows per fan, the fan
 offset, the peek delay and the peek opacity. Changes apply at once.
 
 The values sit on the widget's entry in `~/.config/omarchy/shell.json`, so
@@ -66,13 +69,23 @@ Nothing is written to your config files.
   pinned, fullscreen and grouped windows are left alone.
 - A very short flick can finish before Window Zones notices the drag.
 - Apps with a minimum size may not shrink into a small cell.
-- A Hyprland config reload forgets earlier sizes: a window placed before it keeps its placed size when dragged out.
+- A Hyprland config reload forgets earlier sizes (changing a setting does not): a window placed before it keeps its placed size when dragged out.
 
 ## Development
 
 ```sh
 lua test/window-zones.test.lua   # geometry, hit tests and JSON, without Hyprland
+lua test/runtime.test.lua        # timers, errors, sleep and monitor loss, with a fake Hyprland
+test/e2e/run.sh                  # real drags on a live session, see below
 ```
+
+`test/e2e/run.sh [workspace]` drives a virtual pointer through edges, corners,
+the panel, fans, peek, restore and the new-window size on the focused monitor,
+and checks every result against the plugin's own geometry. The workspace must
+be empty, floating and in the focused monitor's block (Omarchy renumbers the
+others); by default it takes slot 9 of that block. It takes over the mouse for
+about a minute and puts its windows and settings back afterwards. It needs
+`foot`, `jq`, `lua`, a C compiler and the Wayland client headers.
 
 Link the checkout into `~/.config/omarchy/plugins/io.github.derjungeherr.window-zones`,
 enable it, and run `omarchy restart shell` after adding files.

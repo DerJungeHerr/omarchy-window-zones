@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "io.github.derjungeherr.window-zones",
   "name": "Window Zones",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "author": "DerJungeHerr",
   "license": "MIT",
-  "description": "A window manager add-on for floating workspaces, with snapping like Windows 11 snap layouts and FancyZones. Drag a window to a screen edge for a half, or to the top centre for a panel of zones (halves, thirds, quarters, full) and the scratchpad. Adds no key bindings.",
+  "description": "A window manager add-on for floating workspaces, with snapping like Windows 11 snap layouts and FancyZones. Drag a window to a screen edge for a half, into a corner for a quarter, or to the top centre for a panel of zones (halves, thirds, quarters, a centre layout for wide screens, full) and the scratchpad. Adds no key bindings.",
   "kinds": [
     "service",
     "bar-widget"
