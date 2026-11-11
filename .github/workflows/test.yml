@@ -15,3 +15,4 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq lua5.4
       - run: lua5.4 test/window-zones.test.lua
+      - run: lua5.4 test/runtime.test.lua

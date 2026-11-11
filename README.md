@@ -75,6 +75,7 @@ Nothing is written to your config files.
 
 ```sh
 lua test/window-zones.test.lua   # geometry, hit tests and JSON, without Hyprland
+lua test/runtime.test.lua        # timers, errors, sleep and monitor loss, with a fake Hyprland
 test/e2e/run.sh                  # real drags on a live session, see below
 ```
 
