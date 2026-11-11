@@ -140,6 +140,14 @@ function M.in_hotspot(a, mon_x, mon_y, mon_w, x, y)
   return y < math.max(a.y, mon_y + EDGE) and math.abs(x - (mon_x + mon_w / 2)) <= mon_w * HOT_HALF
 end
 
+-- Window rule expressions for Omarchy's open size scaled to pct %, never more
+-- than 90 % of the monitor.
+function M.new_size(pct)
+  local f = string.format("%.2f", pct / 100)
+  return "min(min(1100,monitor_w*0.64)*" .. f .. ",monitor_w*0.9)",
+         "min(min(760,monitor_h*0.68)*" .. f .. ",monitor_h*0.9)"
+end
+
 -- Minimal JSON for the overlay: numbers, strings without quotes, arrays, objects.
 function M.json(v)
   local t = type(v)
@@ -189,6 +197,7 @@ FAN_MAX = math.max(1, math.floor(setting("fanMax", FAN_MAX)))
 FAN_X = math.max(0, math.floor(setting("fanOffset", FAN_X)))
 PEEK_MS = math.max(0, setting("peekDelay", PEEK_MS))
 PEEK_OPACITY = math.min(1, math.max(0.1, setting("peekOpacity", PEEK_OPACITY * 100) / 100))
+local NEW_SIZE = math.min(150, math.max(50, setting("newWindowSize", 100)))
 
 local function xy(t) return t.x or t[1], t.y or t[2] end
 
@@ -549,6 +558,21 @@ M.idle_timer:set_enabled(ENABLED)
 -- Focus follows mouse on floating workspaces too. Omarchy turns it off there on
 -- every switch (workspace-modes.lua); these handlers run after Omarchy's and
 -- turn it back on.
+-- New windows on floating workspaces: Omarchy opens them at a fixed size and
+-- tags them; this later rule on that tag scales the size and keeps them centred.
+-- At 100 % no rule is added, so stock Omarchy applies.
+local NEW_SIZE_RULE = "window-zones-new-size"
+if ENABLED and NEW_SIZE ~= 100 then
+  local w, h = M.new_size(NEW_SIZE)
+  hl.window_rule({
+    name = NEW_SIZE_RULE,
+    enabled = true,
+    match = { tag = "omarchy-mode-opened" },
+    size = w .. " " .. h,
+    move = "(monitor_w-(" .. w .. "))/2 (monitor_h-(" .. h .. "))/2",
+  })
+end
+
 local HOVER_FOCUS = ENABLED and setting("hoverFocus", false)
 local function follow() hl.config({ input = { follow_mouse = 1 } }) end
 M.follow = {}
@@ -586,6 +610,7 @@ M.closed = hl.on("window.close", function(w)
 end)
 
 function M.stop()
+  if NEW_SIZE ~= 100 then hl.window_rule({ name = NEW_SIZE_RULE, enabled = false }) end
   M.closed:remove()
   for _, sub in ipairs(M.follow) do sub:remove() end
   if HOVER_FOCUS then unfollow() end

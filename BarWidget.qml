@@ -13,7 +13,7 @@ Panel {
 
   readonly property var defaults: ({
     enabled: true, edges: true, panel: true, fan: true, peek: true, hoverFocus: false,
-    fanMax: 5, fanOffset: 24, peekDelay: 250, peekOpacity: 85
+    fanMax: 5, fanOffset: 24, peekDelay: 250, peekOpacity: 85, newWindowSize: 100
   })
 
   readonly property var switches: [
@@ -28,7 +28,8 @@ Panel {
     { key: "fanMax", label: "Windows per fan", min: 2, max: 8, step: 1, unit: "" },
     { key: "fanOffset", label: "Fan offset", min: 8, max: 60, step: 4, unit: " px" },
     { key: "peekDelay", label: "Peek delay", min: 100, max: 1000, step: 50, unit: " ms" },
-    { key: "peekOpacity", label: "Peek opacity", min: 40, max: 100, step: 5, unit: " %" }
+    { key: "peekOpacity", label: "Peek opacity", min: 40, max: 100, step: 5, unit: " %" },
+    { key: "newWindowSize", label: "New window size", min: 50, max: 150, step: 5, unit: " %" }
   ]
 
   function value(key) { return setting(key, defaults[key]) }

@@ -76,6 +76,10 @@ for _, w in ipairs({ 720, 1440, 3440 }) do
   assert(pw.x >= 0 and pw.x + pw.w <= w, "panel fits " .. w .. " px")
 end
 
+local nw, nh = M.new_size(150)
+assert(nw == "min(min(1100,monitor_w*0.64)*1.50,monitor_w*0.9)", "new window width rule: " .. nw)
+assert(nh == "min(min(760,monitor_h*0.68)*1.50,monitor_h*0.9)", "new window height rule: " .. nh)
+
 assert(M.json({ a = { 1, 2 }, b = "x", c = true }) == '{"a":[1,2],"b":"x","c":true}', "json")
 assert(M.json({ x = 1.6 }) == '{"x":2}', "json rounds numbers")
 assert(M.json("a\"b\\c") == '"a\\u0022b\\u005cc"', "json escapes")
