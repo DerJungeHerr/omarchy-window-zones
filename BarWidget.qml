@@ -17,7 +17,7 @@ Panel {
   })
 
   readonly property var switches: [
-    { key: "edges", label: "Screen edges", description: "Drag to the left or right edge for a half" },
+    { key: "edges", label: "Screen edges", description: "Drag to the left or right edge for a half, into a corner for a quarter" },
     { key: "panel", label: "Layout panel", description: "Drag under the clock for zones and the scratchpad" },
     { key: "fan", label: "Fan out shared zones", description: "Windows dropped on a taken zone fan out like cards" },
     { key: "peek", label: "Peek in fans", description: "Rest on a covered window to see it" },

@@ -17,7 +17,8 @@ local M = {}
 local IDLE_MS, DRAG_MS = 50, 16
 local TOL = 2          -- px: how closely the window has to follow the cursor
 local STILL_MS = 120   -- stillness before the release probe
-local EDGE = 6         -- px: width of the left/right snap strips
+local EDGE = 6         -- px: width of the snap strips along the screen edges
+local CORNER = 48      -- px: how far from a corner along an edge still means that corner
 local HOT_HALF = 0.15  -- half-width of the top-centre hotspot, as part of the monitor width
 -- Defaults for what the bar widget's settings can change (see the runtime part).
 local FAN_X = 24       -- px: each window in a shared zone sits this far right of the one behind
@@ -35,6 +36,10 @@ M.LAYOUTS = {
   { name = "Centre", cells = { { 0, 0, 1/4, 1 }, { 1/4, 0, 3/4, 1 }, { 3/4, 0, 1, 1 } } },
   { name = "Scratchpad", scratchpad = true, cells = { { 0, 0, 1, 1 } } },
 }
+
+for i, layout in ipairs(M.LAYOUTS) do
+  if layout.name == "Quarters" then M.QUARTERS = i end
+end
 
 -- Usable box of a monitor in global logical coordinates: minus the bar and
 -- other reserved edges, and minus the dock, which reserves nothing itself.
@@ -117,9 +122,17 @@ function M.fan_slot(zone, r, bar)
   end
 end
 
-function M.edge_hit(mon_x, mon_w, x)
-  if x < mon_x + EDGE then return { layout = 1, cell = 1 } end
-  if x >= mon_x + mon_w - EDGE then return { layout = 1, cell = 2 } end
+-- At a screen edge: a quarter near a corner, else a half at the left or right.
+function M.edge_hit(mx, my, mw, mh, x, y)
+  local left, right = x < mx + EDGE, x >= mx + mw - EDGE
+  local top, bottom = y < my + EDGE, y >= my + mh - EDGE
+  local near_left, near_right = x < mx + CORNER, x >= mx + mw - CORNER
+  local near_top, near_bottom = y < my + CORNER, y >= my + mh - CORNER
+  if (left or right or top or bottom) and (near_left or near_right) and (near_top or near_bottom) then
+    return { layout = M.QUARTERS, cell = (near_left and 1 or 2) + (near_top and 0 or 2) }
+  end
+  if left then return { layout = 1, cell = 1 } end
+  if right then return { layout = 1, cell = 2 } end
 end
 
 -- The bar's strip above the usable area, or a thin strip when nothing is reserved on top.
@@ -414,9 +427,15 @@ end
 local function target_at(d, x, y)
   local m = hl.get_monitor_at(x, y)
   if not m then return end
-  local mx, my, mw = monitor_box(m)
+  local mx, my, mw, mh = monitor_box(m)
   d.monitor, d.mx, d.my = m.name, mx, my
   d.area = M.area(m, dock)
+  -- Edges and corners first: on a narrow screen the panel reaches the corners.
+  local edge = EDGES and M.edge_hit(mx, my, mw, mh, x, y)
+  if edge then
+    d.panel = nil
+    return edge
+  end
   if d.panel and d.panel_monitor == m.name and inside(d.panel, x, y, 40) then
     return M.panel_hit(d.panel, x, y)
   end
@@ -425,7 +444,6 @@ local function target_at(d, x, y)
     d.panel, d.panel_monitor = M.panel(d.area, mx, mw), m.name
     return nil
   end
-  return EDGES and M.edge_hit(mx, mw, x) or nil
 end
 
 -- The overlay works in monitor-local coordinates.

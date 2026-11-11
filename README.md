@@ -5,8 +5,9 @@ Windows 11 snap layouts and PowerToys FancyZones: drag a window, drop it into a 
 
 ![The layout panel under the bar, a cell lit, the preview behind it](preview.png)
 
-- **Screen edges.** Drag a window to the left or right edge: a preview shows
-  the half it will take, and dropping puts it there. Halves keep Omarchy's gaps,
+- **Screen edges and corners.** Drag a window to the left or right edge: a preview
+  shows the half it will take, and dropping puts it there. Into a corner, it takes
+  that quarter. Halves keep Omarchy's gaps,
   so corners and shadows stay visible.
 - **Layout panel.** Drag a window to the top centre, under the clock: a panel
   drops down with layouts (halves, thirds, ⅔ + ⅓, quarters, full, and a 25 / 50 / 25
