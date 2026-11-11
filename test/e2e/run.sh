@@ -2,18 +2,30 @@
 # End-to-end tests on a live Omarchy session: real drags through a virtual
 # pointer, expected geometry from the plugin's own functions.
 #
-#   test/e2e/run.sh [workspace]      default workspace 17; it should be empty and floating
+#   test/e2e/run.sh [workspace]      on the focused monitor; empty and floating
 #
-# Takes over the mouse for about a minute and opens throwaway terminals.
+# Omarchy gives each monitor a block of ten workspaces (1-10, 11-20, ...) and
+# renumbers workspaces that sit outside their monitor's block, so the workspace
+# must be in the focused monitor's block. Default: slot 9 of that block.
+#
+# Takes over the mouse for about a minute and opens throwaway terminals, which it
+# closes again; the plugin settings it touches are put back, also on Ctrl+C.
 # Needs: foot, jq, lua, cc, wayland-client headers.
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
-WS=${1:-17}
-TMP=${XDG_RUNTIME_DIR:-/tmp}/window-zones-e2e
+MON=$(hyprctl monitors -j | jq -r '.[]|select(.focused)|.name')
+BLOCK=$(awk -F'\t' -v m="$MON" '$2 == m { print $1 }' "${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/monitor-workspaces" 2>/dev/null)
+[[ $BLOCK =~ ^[0-9]+$ ]] || BLOCK=0
+WS=${1:-$((BLOCK * 10 + 9))}
+[[ $WS =~ ^[1-9][0-9]*$ ]] || { echo "workspace must be a positive number"; exit 1; }
+(( (WS - 1) / 10 == BLOCK )) || { echo "workspace $WS is not in $MON's block ($((BLOCK * 10 + 1))-$((BLOCK * 10 + 10)))"; exit 1; }
 ID=io.github.derjungeherr.window-zones
-mkdir -p "$TMP"
+RUN=wz-e2e-$$-                   # app id prefix of this run's windows
+W1=${RUN}1 W2=${RUN}2 W3=${RUN}3 W4=${RUN}4
+TMP=$(mktemp -d) || exit 1       # private: the pointer binary is built and run from here
+[[ $TMP =~ ^[A-Za-z0-9/._-]+$ ]] || { echo "unexpected temp path $TMP"; exit 1; }
 VP=$TMP/vpointer
-[[ $VP -nt $HERE/vpointer.c ]] || cc -O2 -o "$VP" "$HERE/vpointer.c" $(pkg-config --cflags --libs wayland-client) || exit 1
+VP_PID=""
 
 pass=0 fail=0
 ok() { echo "PASS $1"; pass=$((pass + 1)); }
@@ -65,16 +77,36 @@ near() {
 }
 
 # --- setup --------------------------------------------------------------
-# Hover focus would focus the back window of a fan before a peek can show; test
-# with Omarchy's click focus and put the user's choice back afterwards.
-HOVER=$(omarchy bar get $ID hoverFocus 2>/dev/null); [[ $HOVER == true ]] || HOVER=false
+setting() { local v; v=$(omarchy bar get $ID "$1" 2>/dev/null); [[ $v =~ ^(true|false|[0-9]+)$ ]] && echo "$v" || echo "$2"; }
+HOVER=$(setting hoverFocus false) FAN_OFFSET=$(setting fanOffset 24) NEW_SIZE=$(setting newWindowSize 100)
+BACK_WS=$(hyprctl activeworkspace -j | jq -r .id)   # where the monitor was, to return to
+
+cleanup() {
+  [[ -n $VP_PID ]] && { exec 3>&- 2>/dev/null; kill "$VP_PID" 2>/dev/null; }
+  for a in $(hyprctl clients -j | jq -r --arg p "$RUN" '.[]|select(.class|startswith($p))|.address'); do
+    hypr "hl.dsp.window.close({ window = \"address:$a\" })"
+  done
+  omarchy bar set $ID fanOffset "$FAN_OFFSET" --json >/dev/null
+  omarchy bar set $ID newWindowSize "$NEW_SIZE" --json >/dev/null
+  omarchy bar set $ID hoverFocus "$HOVER" --json >/dev/null
+  [[ $BACK_WS =~ ^-?[0-9]+$ ]] && hypr "hl.dsp.focus({ workspace = \"$BACK_WS\" })"
+  rm -rf "$TMP"
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+
+if (( $(hyprctl clients -j | jq --argjson ws "$WS" '[.[]|select(.workspace.id == $ws)]|length') > 0 )); then
+  echo "workspace $WS has windows; give the tests an empty one"; exit 1
+fi
+cc -O2 -o "$VP" "$HERE/vpointer.c" $(pkg-config --cflags --libs wayland-client) || exit 1
+# Hover focus would focus the back window of a fan before a peek can show: test
+# with Omarchy's click focus; cleanup puts the user's choice back.
 omarchy bar set $ID hoverFocus false --json >/dev/null; sleep 2
-trap 'omarchy bar set $ID hoverFocus $HOVER --json >/dev/null' EXIT
 hypr "hl.dsp.focus({ workspace = \"$WS\" })"; sleep 0.4
 [[ $(omarchy hyprland workspace layout current "$WS") == floating ]] || { echo "workspace $WS is not floating"; exit 1; }
 monitor
 hyprctl eval 'local d = window_zones_dock
-  local f = io.open(os.getenv("XDG_RUNTIME_DIR") .. "/window-zones-e2e/env", "w")
+  local f = io.open("'"$TMP"'/env", "w")
   local function opt(k, d) local ok, v = pcall(hl.get_config, k) if type(v) == "table" then v = v.top end return ok and v or d end
   f:write(d and d.edge or "none", " ", d and d.size or 0, " ", opt("plugin:hyprbars:bar_height", 0), " ", opt("general:gaps_out", 10), " ", opt("general:gaps_in", 5), "\n")
   f:close()' >/dev/null
@@ -97,21 +129,21 @@ if FY=$(side_y left free); [[ -n $FY ]]; then FX=$MX FCELL=1; else FY=$(side_y r
 vp_start
 
 # --- edges and corners --------------------------------------------------
-open wz1
+open $W1
 for side in left right; do
   y=$(side_y $side free); x=$MX; cell=1; [[ $side == right ]] && x=$((MX + MW - 1)) cell=2
-  if [[ -n $y ]]; then reset wz1; drag_to wz1 $x $y; near "$side edge" wz1 $(expect cell Halves $cell); fi
+  if [[ -n $y ]]; then reset $W1; drag_to $W1 $x $y; near "$side edge" $W1 $(expect cell Halves $cell); fi
   y=$(side_y $side shared)
   if [[ -n $y ]]; then
-    reset wz1; drag_to wz1 $x $y; read -r gx gy gw gh < <(geo wz1)
+    reset $W1; drag_to $W1 $x $y; read -r gx gy gw gh < <(geo $W1)
     [[ "$gw $gh" == "900 600" ]] && ok "$side edge shared with a monitor: no snap" || bad "$side edge shared with a monitor: no snap" "got $gw x $gh"
-    hypr "hl.dsp.window.move({ window = \"class:wz1\", workspace = \"$WS\" })"; sleep 0.3
+    hypr "hl.dsp.window.move({ window = \"class:$W1\", workspace = \"$WS\" })"; sleep 0.3
   fi
 done
-reset wz1; drag_to wz1 $MX $MY;                                  near "top-left corner" wz1 $(expect cell Quarters 1)
-reset wz1; drag_to wz1 $((MX + MW - 1)) $MY;                     near "top-right corner" wz1 $(expect cell Quarters 2)
-reset wz1; drag_to wz1 $MX $((MY + MH - 1));                     near "bottom-left corner" wz1 $(expect cell Quarters 3)
-reset wz1; drag_to wz1 $((MX + MW - 1)) $((MY + MH - 1));        near "bottom-right corner" wz1 $(expect cell Quarters 4)
+reset $W1; drag_to $W1 $MX $MY;                                  near "top-left corner" $W1 $(expect cell Quarters 1)
+reset $W1; drag_to $W1 $((MX + MW - 1)) $MY;                     near "top-right corner" $W1 $(expect cell Quarters 2)
+reset $W1; drag_to $W1 $MX $((MY + MH - 1));                     near "bottom-left corner" $W1 $(expect cell Quarters 3)
+reset $W1; drag_to $W1 $((MX + MW - 1)) $((MY + MH - 1));        near "bottom-right corner" $W1 $(expect cell Quarters 4)
 
 # --- panel --------------------------------------------------------------
 panel_drop() {
@@ -124,53 +156,53 @@ panel_drop() {
   for i in $(seq 1 10); do warp $((MX + MW / 2 + (tx - MX - MW / 2) * i / 10)) $((MY + 2 + (ty - MY - 2) * i / 10)); sleep 0.02; done
   sleep 0.5; vp up; sleep 0.7
 }
-reset wz1; panel_drop wz1 Thirds 2;                              near "panel thirds middle" wz1 $(expect cell Thirds 2)
-reset wz1; panel_drop wz1 Centre 2;                              near "panel centre" wz1 $(expect cell Centre 2)
-reset wz1; panel_drop wz1 Scratchpad 1
-[[ $(hyprctl clients -j | jq -r '.[]|select(.class=="wz1")|.workspace.name') == special:scratchpad ]] && ok "panel scratchpad" || bad "panel scratchpad" "not on special:scratchpad"
-hypr "hl.dsp.window.move({ window = \"class:wz1\", workspace = \"$WS\" })"; sleep 0.3
+reset $W1; panel_drop $W1 Thirds 2;                              near "panel thirds middle" $W1 $(expect cell Thirds 2)
+reset $W1; panel_drop $W1 Centre 2;                              near "panel centre" $W1 $(expect cell Centre 2)
+reset $W1; panel_drop $W1 Scratchpad 1
+[[ $(hyprctl clients -j | jq -r --arg c "$W1" '.[]|select(.class==$c)|.workspace.name') == special:scratchpad ]] && ok "panel scratchpad" || bad "panel scratchpad" "not on special:scratchpad"
+hypr "hl.dsp.window.move({ window = \"class:$W1\", workspace = \"$WS\" })"; sleep 0.3
 
 # --- plain drag and restore ---------------------------------------------
-reset wz1; drag_to wz1 $FX $FY
-drag_to wz1 $((MX + MW / 2)) $((MY + MH / 2))
-read -r x y w h < <(geo wz1); [[ "$w $h" == "900 600" ]] && ok "drag out restores the size" || bad "drag out restores the size" "got $w x $h"
+reset $W1; drag_to $W1 $FX $FY
+drag_to $W1 $((MX + MW / 2)) $((MY + MH / 2))
+read -r x y w h < <(geo $W1); [[ "$w $h" == "900 600" ]] && ok "drag out restores the size" || bad "drag out restores the size" "got $w x $h"
 
-reset wz1; drag_to wz1 $FX $FY
-omarchy bar set $ID fanOffset 26 --json >/dev/null; sleep 2
-omarchy bar set $ID fanOffset 24 --json >/dev/null; sleep 2
-drag_to wz1 $((MX + MW / 2)) $((MY + MH / 2))
-read -r x y w h < <(geo wz1); [[ "$w $h" == "900 600" ]] && ok "restore survives a settings change" || bad "restore survives a settings change" "got $w x $h"
+reset $W1; drag_to $W1 $FX $FY
+omarchy bar set $ID fanOffset $((FAN_OFFSET + 2)) --json >/dev/null; sleep 2
+omarchy bar set $ID fanOffset "$FAN_OFFSET" --json >/dev/null; sleep 2
+drag_to $W1 $((MX + MW / 2)) $((MY + MH / 2))
+read -r x y w h < <(geo $W1); [[ "$w $h" == "900 600" ]] && ok "restore survives a settings change" || bad "restore survives a settings change" "got $w x $h"
 
 # --- fans ---------------------------------------------------------------
-open wz2; open wz3
-for c in wz1 wz2 wz3; do reset $c; drag_to $c $FX $FY; done
-near "fan back" wz1 $(expect cell Halves $FCELL 3 0)
-near "fan middle" wz2 $(expect cell Halves $FCELL 3 1)
-near "fan front" wz3 $(expect cell Halves $FCELL 3 2)
+open $W2; open $W3
+for c in $W1 $W2 $W3; do reset $c; drag_to $c $FX $FY; done
+near "fan back" $W1 $(expect cell Halves $FCELL 3 0)
+near "fan middle" $W2 $(expect cell Halves $FCELL 3 1)
+near "fan front" $W3 $(expect cell Halves $FCELL 3 2)
 
 # peek: rest on the back window's visible titlebar strip
-read -r x y w h < <(geo wz1); warp $((x + w / 2)) $((y - 15)); vp "move 1 0"; sleep 0.6
-[[ $(hyprctl getprop "address:$(addr wz1)" opacity) != 1 ]] && ok "peek" || bad "peek" "back window stays opaque"
+read -r x y w h < <(geo $W1); warp $((x + w / 2)) $((y - 15)); vp "move 1 0"; sleep 0.6
+[[ $(hyprctl getprop "address:$(addr $W1)" opacity) != 1 ]] && ok "peek" || bad "peek" "back window stays opaque"
 warp $((MX + MW - 50)) $((MY + MH / 2)); vp "move 1 1"; sleep 0.3
-[[ $(hyprctl getprop "address:$(addr wz1)" opacity) == 1 ]] && ok "peek ends" || bad "peek ends" "still see-through"
+[[ $(hyprctl getprop "address:$(addr $W1)" opacity) == 1 ]] && ok "peek ends" || bad "peek ends" "still see-through"
 
-close wz2
-near "close: back stays" wz1 $(expect cell Halves $FCELL 2 0)
-near "close: front closes up" wz3 $(expect cell Halves $FCELL 2 1)
-hypr "hl.dsp.focus({ window = \"class:wz3\" })"; sleep 0.2
-drag_to wz3 $((MX + MW / 2)) $((MY + MH / 2))
-near "drag out: last one fills the zone" wz1 $(expect cell Halves $FCELL)
-close wz1 wz3
+close $W2
+near "close: back stays" $W1 $(expect cell Halves $FCELL 2 0)
+near "close: front closes up" $W3 $(expect cell Halves $FCELL 2 1)
+hypr "hl.dsp.focus({ window = \"class:$W3\" })"; sleep 0.2
+drag_to $W3 $((MX + MW / 2)) $((MY + MH / 2))
+near "drag out: last one fills the zone" $W1 $(expect cell Halves $FCELL)
+close $W1 $W3
 
 # --- new window size ----------------------------------------------------
 omarchy bar set $ID newWindowSize 120 --json >/dev/null; sleep 2
-open wz4
-read -r x y w h < <(geo wz4)
+open $W4
+read -r x y w h < <(geo $W4)
 want_w=$(lua -e "print(math.floor(math.min(math.min(1100, $MW * 0.64) * 1.2, $MW * 0.9)))")
 want_h=$(lua -e "print(math.floor(math.min(math.min(760, $MH * 0.68) * 1.2, $MH * 0.9)))")
 (( w - want_w <= 2 && want_w - w <= 2 && h - want_h <= 2 && want_h - h <= 2 )) && ok "new window size 120 %" || bad "new window size 120 %" "got $w x $h want $want_w x $want_h"
-close wz4
-omarchy bar set $ID newWindowSize 100 --json >/dev/null; sleep 2
+close $W4
+omarchy bar set $ID newWindowSize "$NEW_SIZE" --json >/dev/null; sleep 2
 
 vp_stop
 echo "$pass passed, $fail failed"

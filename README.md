@@ -75,13 +75,15 @@ Nothing is written to your config files.
 
 ```sh
 lua test/window-zones.test.lua   # geometry, hit tests and JSON, without Hyprland
-test/e2e/run.sh 17               # real drags on a live session, see below
+test/e2e/run.sh                  # real drags on a live session, see below
 ```
 
 `test/e2e/run.sh [workspace]` drives a virtual pointer through edges, corners,
 the panel, fans, peek, restore and the new-window size on the focused monitor,
-and checks every result against the plugin's own geometry. Give it an empty
-floating workspace; it takes over the mouse for about a minute. It needs
+and checks every result against the plugin's own geometry. The workspace must
+be empty, floating and in the focused monitor's block (Omarchy renumbers the
+others); by default it takes slot 9 of that block. It takes over the mouse for
+about a minute and puts its windows and settings back afterwards. It needs
 `foot`, `jq`, `lua`, a C compiler and the Wayland client headers.
 
 Link the checkout into `~/.config/omarchy/plugins/io.github.derjungeherr.window-zones`,
