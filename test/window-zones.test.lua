@@ -51,6 +51,18 @@ assert(M.fan_slot(left, { x = 300, y = 300, w = 400, h = 300 }, 30) == nil, "a l
 assert(M.fan_slot(left, { x = 10, y = 36, w = 3000, h = 300 }, 30) == nil, "a window wider than the zone is no member")
 eq(M.fan(left, 7, 5, 30), M.fan(left, 5, 0, 30), "the sixth window starts again at the back")
 
+-- Centre layout: a half in the middle, a quarter either side, the usual gaps.
+local centre
+for i, l in ipairs(M.LAYOUTS) do if l.name == "Centre" then centre = l end end
+assert(centre, "centre layout exists")
+local mid = M.cell(a, centre.cells[2], 10, 5)
+eq(mid, { x = 865, y = 36, w = 1710, h = 1394 }, "centre cell")
+assert(M.LAYOUTS[#M.LAYOUTS].scratchpad, "scratchpad stays last")
+for _, w in ipairs({ 720, 1440, 3440 }) do
+  local pw = M.panel(M.area({ x = 0, y = 0, width = w, height = 900, scale = 1, transform = 0, reserved = { top = 26 } }), 0, w)
+  assert(pw.x >= 0 and pw.x + pw.w <= w, "panel fits " .. w .. " px")
+end
+
 assert(M.json({ a = { 1, 2 }, b = "x", c = true }) == '{"a":[1,2],"b":"x","c":true}', "json")
 assert(M.json({ x = 1.6 }) == '{"x":2}', "json rounds numbers")
 assert(M.json("a\"b\\c") == '"a\\u0022b\\u005cc"', "json escapes")

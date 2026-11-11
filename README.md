@@ -9,7 +9,8 @@ Windows 11 snap layouts and PowerToys FancyZones: drag a window, drop it into a 
   the half it will take, and dropping puts it there. Halves keep Omarchy's gaps,
   so corners and shadows stay visible.
 - **Layout panel.** Drag a window to the top centre, under the clock: a panel
-  drops down with layouts (halves, thirds, ⅔ + ⅓, quarters, full). Drop on a cell
+  drops down with layouts (halves, thirds, ⅔ + ⅓, quarters, full, and a 25 / 50 / 25
+  centre for wide screens). Drop on a cell
   and the window fills it.
 - **Scratchpad.** The last tile in the panel sends the window to the scratchpad,
   like <kbd>Super</kbd> + <kbd>Alt</kbd> + <kbd>S</kbd>.

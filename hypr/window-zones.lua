@@ -32,6 +32,7 @@ M.LAYOUTS = {
   { name = "Wide right", cells = { { 0, 0, 1/3, 1 }, { 1/3, 0, 1, 1 } } },
   { name = "Quarters", cells = { { 0, 0, 1/2, 1/2 }, { 1/2, 0, 1, 1/2 }, { 0, 1/2, 1/2, 1 }, { 1/2, 1/2, 1, 1 } } },
   { name = "Full", cells = { { 0, 0, 1, 1 } } },
+  { name = "Centre", cells = { { 0, 0, 1/4, 1 }, { 1/4, 0, 3/4, 1 }, { 3/4, 0, 1, 1 } } },
   { name = "Scratchpad", scratchpad = true, cells = { { 0, 0, 1, 1 } } },
 }
 
