@@ -66,7 +66,7 @@ Nothing is written to your config files.
   pinned, fullscreen and grouped windows are left alone.
 - A very short flick can finish before Window Zones notices the drag.
 - Apps with a minimum size may not shrink into a small cell.
-- A Hyprland config reload forgets earlier sizes: a window placed before it keeps its placed size when dragged out.
+- A Hyprland config reload forgets earlier sizes (changing a setting does not): a window placed before it keeps its placed size when dragged out.
 
 ## Development
 

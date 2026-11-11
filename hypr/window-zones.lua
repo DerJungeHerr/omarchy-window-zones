@@ -152,7 +152,10 @@ if not hl then return M end
 
 -- Runtime -----------------------------------------------------------------
 
-if window_zones and window_zones.stop then window_zones.stop() end
+-- A settings change loads this file again into the same Lua state; the new load
+-- takes over what the previous one knew about placed windows.
+local previous = window_zones
+if previous and previous.stop then previous.stop() end
 window_zones = M
 
 local gen = math.floor(tonumber(window_zones_gen) or 0)
@@ -220,7 +223,8 @@ end
 local function dispatch(d) pcall(hl.dispatch, d) end
 
 -- Windows Window Zones placed: their size before, the box they got, and their zone.
-local snapped = {}
+local snapped = previous and previous.snapped or {}
+M.snapped = snapped
 
 local function place(addr, box, zone)
   local w = window(addr)
