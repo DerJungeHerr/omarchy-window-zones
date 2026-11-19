@@ -205,6 +205,22 @@ drag_to $W3 $((MX + MW / 2)) $((MY + MH / 2))
 near "drag out: last one fills the zone" $W1 $(expect cell Halves $FCELL)
 close $W1 $W3
 
+# --- coupled resizing ---------------------------------------------------
+open $W1; open $W2
+reset $W1; panel_drop $W1 Halves 1
+reset $W2; panel_drop $W2 Halves 2
+read -r nx ny nw nh < <(expect cell Halves 2)
+# Like dragging W1's right edge: 120 px wider, its left edge where it was.
+# (A relative resize would grow a floating window on both sides.)
+read -r x y w h < <(geo $W1)
+hypr "hl.dsp.focus({ window = \"class:$W1\" })"; sleep 0.2
+hypr "hl.dsp.window.resize({ window = \"class:$W1\", x = $((w + 120)), y = $h, relative = false })"
+hypr "hl.dsp.window.move({ window = \"class:$W1\", x = $x, y = $y })"; sleep 0.5
+near "coupled resize: the neighbour follows" $W2 $((nx + 120)) $ny $((nw - 120)) $nh
+drag_to $W1 $((MX + MW / 2)) $((MY + MH / 2))
+read -r x y w h < <(geo $W1); [[ "$w $h" == "900 600" ]] && ok "coupled resize: drag out still restores" || bad "coupled resize: drag out still restores" "got $w x $h"
+close $W1 $W2
+
 # --- new window size ----------------------------------------------------
 omarchy bar set $ID newWindowSize 120 --json >/dev/null; sleep 2
 open $W4

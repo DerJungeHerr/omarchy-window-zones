@@ -521,6 +521,58 @@ local function unsnap(w, cx)
   dispatch(hl.dsp.window.move({ window = win, x = nx, y = wy }))
 end
 
+-- Coupled resizing: once a placed window's new size holds for a tick, the
+-- placed windows along the edges it moved follow, keeping the gap, as with
+-- Windows snap groups. Only zones holding a single window take part: in a fan
+-- it is unclear which card should follow.
+local resizing
+
+local function alone(zone, addr) return #members(zone, addr) == 0 end
+
+local function zone_from(box, zone)
+  return { x = box.x, y = box.y - zone.bar, w = box.w, h = box.h + zone.bar, ws = zone.ws, bar = zone.bar }
+end
+
+local function couple(w)
+  local s = snapped[w.address]
+  if not (s and s.box and s.zone) or not alone(s.zone, w.address) then return end
+  local x, y = xy(w.at)
+  local ww, wh = xy(w.size)
+  local o, n = s.box, { x = x, y = y, w = ww, h = wh }
+  -- Between two placed windows: twice gaps_in, plus a titlebar above the lower one.
+  local reach = 2 * opt("general:gaps_in", 5) + s.zone.bar + TOL
+  local function near(gap) return gap >= -TOL and gap <= reach end
+  for addr, q in pairs(snapped) do
+    local b = q.box
+    if addr ~= w.address and b and q.zone and q.zone.ws == s.zone.ws and window(addr) and alone(q.zone, addr) then
+      local nb = { x = b.x, y = b.y, w = b.w, h = b.h }
+      local beside = b.y < o.y + o.h and o.y < b.y + b.h
+      local above_below = b.x < o.x + o.w and o.x < b.x + b.w
+      if beside and near(b.x - (o.x + o.w)) then
+        local d = (n.x + n.w) - (o.x + o.w)
+        nb.x, nb.w = b.x + d, b.w - d
+      elseif beside and near(o.x - (b.x + b.w)) then
+        nb.w = b.w + (n.x - o.x)
+      end
+      if above_below and near(b.y - (o.y + o.h)) then
+        local d = (n.y + n.h) - (o.y + o.h)
+        nb.y, nb.h = b.y + d, b.h - d
+      elseif above_below and near(o.y - (b.y + b.h)) then
+        nb.h = b.h + (n.y - o.y)
+      end
+      local changed = nb.x ~= b.x or nb.y ~= b.y or nb.w ~= b.w or nb.h ~= b.h
+      if changed and nb.w >= 50 and nb.h >= 50 then
+        local win = "address:" .. addr
+        dispatch(hl.dsp.window.resize({ window = win, x = nb.w, y = nb.h, relative = false }))
+        dispatch(hl.dsp.window.move({ window = win, x = nb.x, y = nb.y }))
+        q.box, q.zone = nb, zone_from(nb, q.zone)
+      end
+    end
+  end
+  s.box, s.zone = n, zone_from(n, s.zone)
+  save()
+end
+
 local function start(w, cx)
   unsnap(w, cx)
   drag = { addr = w.address, ws = w.workspace.id, still = 0, bar = opt("plugin:hyprbars:bar_height", 0) }
@@ -552,7 +604,21 @@ local function idle_tick()
   local now = { addr = w.address, x = wx, y = wy, w = ww, h = wh, cx = c.x, cy = c.y }
   local p = last
   last = now
-  if not p or p.addr ~= now.addr or p.w ~= now.w or p.h ~= now.h then return end
+  if p and p.addr == now.addr then
+    if p.w ~= now.w or p.h ~= now.h then
+      -- Only a resize that starts from the placed box is the user's: placing
+      -- and coupling resize windows too, from some other size.
+      local s = snapped[now.addr]
+      if s and s.box and (resizing == now.addr or (math.abs(p.w - s.box.w) <= TOL and math.abs(p.h - s.box.h) <= TOL)) then
+        resizing = now.addr
+      end
+      return
+    elseif resizing == now.addr then
+      resizing = nil
+      couple(w)
+    end
+  end
+  if not p or p.addr ~= now.addr then return end
   local dx, dy, dcx, dcy = now.x - p.x, now.y - p.y, now.cx - p.cx, now.cy - p.cy
   if (dx ~= 0 or dy ~= 0) and math.abs(dx - dcx) <= TOL and math.abs(dy - dcy) <= TOL then
     start(w, c.x)

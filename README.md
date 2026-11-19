@@ -23,6 +23,9 @@ Windows 11 snap layouts and PowerToys FancyZones: drag a window, drop it into a 
   When one is dragged out or closed, the rest close up.
 - **Peek.** Rest the pointer on a covered window in a fan and it comes up,
   see-through and without taking focus. Click to keep it, move away to put it back.
+- **Resize together.** Resize a placed window and the placed windows along the
+  edge you moved follow, keeping the gap, like Windows snap groups. Windows in a
+  fan stay as they are.
 - **Drag out.** Pulling a placed window away gives it back its earlier size,
   also after a Hyprland config reload.
 - **No key bindings.** Window Zones adds none, so every Omarchy shortcut keeps working.
