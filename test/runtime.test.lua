@@ -82,6 +82,111 @@ tick("drag") tick("drag")
 hl.get_monitor_at = function() return monitor end
 assert(#spawned == 0 or not spawned[#spawned]:match("stopped"), "a missing monitor is no error")
 
+-- Restore sizes survive a config reload, which starts a fresh Lua state.
+local state_file = "/tmp/window-zones-snapped.lua"
+os.remove(state_file)
+tick("idle")
+win.at.x, cursor.x = win.at.x - 50, cursor.x - 50
+tick("idle")
+cursor.x, win.at.x = 2, win.at.x - (cursor.x - 2)
+tick("drag")                      -- at the left edge: target is the left half
+cursor.y = cursor.y + 20
+tick("drag")                      -- the cursor moved on without the window: dropped
+assert(count("window", "resize") > 0, "the window is placed")
+local function reload()
+  window_zones = nil
+  window_zones_gen = 2
+  dofile(file)
+end
+local windows = hl.get_windows
+hl.get_windows = function() return {} end
+reload()
+assert(next(window_zones.snapped) == nil, "entries of windows that are gone are dropped")
+hl.get_windows = windows
+reload()
+local s = window_zones.snapped["0xa"]
+assert(s and s.w == 800 and s.h == 600 and s.box and s.zone, "the restore size is back after a reload")
+
+-- Custom layouts from the settings join the panel before the scratchpad.
+window_zones_settings = { layouts = { { cols = { 60, 40 }, split = { false, true } } } }
+reload()
+local L = window_zones.LAYOUTS
+assert(L[#L - 1].name == "Custom 1" and #L[#L - 1].cells == 3 and L[#L].scratchpad, "a custom layout from the settings")
+window_zones_settings = nil
+reload()
+assert(not window_zones.LAYOUTS[#window_zones.LAYOUTS - 1].name:match("^Custom"), "gone again without the setting")
+
+-- A state file that tries to run code is ignored.
+local f = assert(io.open(state_file, "w"))
+f:write('return { ["0xa"] = { w = os.exit(1), h = 1 } }')
+f:close()
+reload()
+assert(next(window_zones.snapped) == nil, "a hostile state file is ignored")
+os.remove(state_file)
+
+-- Resizing a placed window moves the edge of the placed window next to it.
+-- Halves on 1920 x 1080 with a 26 px bar, gaps 10 / 5, no titlebar.
+local function placed(w, x)
+  w.at, w.size = { x = x, y = 36 }, { x = 945, y = 1034 }
+  window_zones.snapped[w.address] = { w = 800, h = 600, box = { x = x, y = 36, w = 945, h = 1034 },
+                                      zone = { x = x, y = 36, w = 945, h = 1034, ws = 1, bar = 0 } }
+end
+local win2 = { address = "0xb", mapped = true, floating = true, pinned = false, fullscreen = 0,
+               workspace = { id = 1, special = false }, tags = { "omarchy-floating-workspace" }, focus_history_id = 1 }
+hl.get_windows = function() return { win, win2 } end
+placed(win, 10) placed(win2, 965)
+cursor.x, cursor.y = 950, 500
+local function last_dispatch(addr, name)
+  for i = #dispatched, 1, -1 do
+    local d = dispatched[i]
+    if d.group == "window" and d.name == name and d.args.window == "address:" .. addr then return d.args end
+  end
+end
+dispatched = {}
+tick("idle")
+win.size.x = 1045                 -- its right edge dragged 100 px to the right
+tick("idle")
+assert(not last_dispatch("0xb", "resize"), "nothing moves while the edge is still moving")
+tick("idle")                      -- the edge stands still
+local r, m = last_dispatch("0xb", "resize"), last_dispatch("0xb", "move")
+assert(r and r.x == 845 and r.y == 1034, "the neighbour gives up 100 px")
+assert(m and m.x == 1065 and m.y == 36, "the neighbour's left edge follows, the gap stays")
+assert(window_zones.snapped["0xa"].box.w == 1045 and window_zones.snapped["0xb"].box.x == 1065, "both remember their new boxes")
+assert(window_zones.snapped["0xa"].w == 800, "the size to restore on drag out stays")
+
+-- Placing a window resizes it too, and a tick can fall between its new size and
+-- its new position: that is no resize by the user, nothing follows.
+placed(win, 10) placed(win2, 965)
+win.at, win.size = { x = 500, y = 400 }, { x = 800, y = 600 }   -- where it was before the drop
+dispatched = {}
+tick("idle")
+win.size = { x = 945, y = 1034 }   -- the resize has landed, the move not yet
+tick("idle") tick("idle")
+assert(not last_dispatch("0xb", "resize") and not last_dispatch("0xb", "move"), "a placement moves no neighbour")
+assert(window_zones.snapped["0xa"].box.x == 10, "a placement keeps the box it asked for")
+
+-- Moving a placed window without resizing it couples nothing.
+placed(win, 10) placed(win2, 965)
+dispatched = {}
+tick("idle")
+win.at.y = 60
+tick("idle") tick("idle")
+assert(not last_dispatch("0xb", "resize") and not last_dispatch("0xb", "move"), "a move is no resize")
+
+-- A window in a fan is left alone: its neighbour would not know which one to follow.
+local win3 = { address = "0xc", mapped = true, floating = true, pinned = false, fullscreen = 0,
+               workspace = { id = 1, special = false }, tags = { "omarchy-floating-workspace" }, focus_history_id = 2 }
+placed(win, 10) placed(win2, 965) placed(win3, 965)
+win3.at, win3.size = { x = 989, y = 36 }, { x = 921, y = 1034 }   -- second card of a fan in the right half
+hl.get_windows = function() return { win, win2, win3 } end
+dispatched = {}
+tick("idle")
+win.size.x = 1045
+tick("idle") tick("idle")
+assert(not last_dispatch("0xb", "resize") and not last_dispatch("0xc", "resize"), "a fan does not follow")
+hl.get_windows = windows
+os.remove(state_file)
+
 -- An error inside a tick stops the plugin once, instead of on every tick.
 hl.get_cursor_pos = function() error("boom") end
 for _ = 1, 10 do tick("idle") tick("drag") end

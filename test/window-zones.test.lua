@@ -84,6 +84,45 @@ assert(M.json({ a = { 1, 2 }, b = "x", c = true }) == '{"a":[1,2],"b":"x","c":tr
 assert(M.json({ x = 1.6 }) == '{"x":2}', "json rounds numbers")
 assert(M.json("a\"b\\c") == '"a\\u0022b\\u005cc"', "json escapes")
 
+-- Custom layouts: columns of any widths, normalised, each optionally split 50 / 50.
+-- Fractions need an exact comparison; eq goes through json, which rounds.
+local function same(x, y, what)
+  local function walk(u, v)
+    if type(u) == "number" and type(v) == "number" then return math.abs(u - v) < 1e-9 end
+    if type(u) ~= "table" or type(v) ~= "table" or #u ~= #v then return false end
+    for i = 1, #u do if not walk(u[i], v[i]) then return false end end
+    return true
+  end
+  assert(walk(x, y), what)
+end
+same(M.custom_cells({ cols = { 60, 40 }, split = { false, true } }),
+   { { 0, 0, 0.6, 1 }, { 0.6, 0, 1, 1 / 2 }, { 0.6, 1 / 2, 1, 1 } }, "60 / 40, right split")
+same(M.custom_cells({ cols = { 20, 40, 20 } }), { { 0, 0, 0.25, 1 }, { 0.25, 0, 0.75, 1 }, { 0.75, 0, 1, 1 } }, "widths normalise")
+same(M.custom_cells({ cols = { 100 }, split = { true } }), { { 0, 0, 1, 1 / 2 }, { 0, 1 / 2, 1, 1 } }, "one column split: top and bottom")
+same(M.custom_cells({ cols = { 99, 1 } }), { { 0, 0, 0.95, 1 }, { 0.95, 0, 1, 1 } }, "no column under 5 %")
+assert(M.custom_cells({ cols = {} }) == nil, "no columns is no layout")
+assert(M.custom_cells({ cols = { 20, 20, 20, 20, 20 } }) == nil, "more than four columns is no layout")
+assert(M.custom_cells({ cols = { 50, "x" } }) == nil, "a column that is no number is no layout")
+assert(M.custom_cells({ cols = { 50, 0 / 0 } }) == nil, "NaN is no layout")
+assert(M.custom_cells("x") == nil, "a string is no layout")
+
+local builtin = #M.LAYOUTS
+local L = M.layouts({ { cols = { 60, 40 } }, { cols = {} }, { cols = { 30, 70 } }, { cols = { 50, 50 } }, { cols = { 25, 75 } } })
+assert(#L == builtin + 3, "up to three valid custom layouts, got " .. (#L - builtin))
+assert(L[builtin].name == "Custom 1" and L[builtin + 1].name == "Custom 2" and L[builtin + 2].name == "Custom 3", "named in order, invalid ones skipped")
+same(L[builtin + 1].cells[1], { 0, 0, 0.3, 1 }, "the second valid one is the second custom")
+assert(L[#L].scratchpad, "scratchpad stays last with custom layouts")
+assert(L[M.QUARTERS].name == "Quarters" and L[1].name == "Halves", "built-in positions stay, edges and corners rely on them")
+assert(#M.layouts(nil) == builtin and #M.layouts("x") == builtin, "no custom layouts: just the built-ins")
+
+M.LAYOUTS = L
+for _, w in ipairs({ 720, 1440, 1800, 3440 }) do
+  local pw = M.panel(M.area({ x = 0, y = 0, width = w, height = 900, scale = 1, transform = 0, reserved = { top = 26 } }), 0, w)
+  assert(pw.x >= 0 and pw.x + pw.w <= w, "panel with custom layouts fits " .. w .. " px")
+  assert(#pw.tiles == #L, "a tile per layout")
+end
+M.LAYOUTS = M.layouts({})
+
 local narrow = M.panel(M.area({ x = 0, y = 0, width = 720, height = 1280, scale = 1, transform = 0, reserved = { top = 26 } }), 0, 720)
 assert(narrow.x >= 0 and narrow.x + narrow.w <= 720, "panel fits a narrow screen")
 

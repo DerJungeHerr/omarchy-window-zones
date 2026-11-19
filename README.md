@@ -3,7 +3,7 @@
 Window snapping for [Omarchy](https://omarchy.org)'s floating workspaces, in the spirit of
 Windows 11 snap layouts and PowerToys FancyZones: drag a window, drop it into a zone.
 
-![The layout panel under the bar, a cell lit, the preview behind it](preview.png)
+![A window dragged into a corner, to the right edge, through the layout panel, onto a taken zone and out again](demo.gif)
 
 - **Screen edges and corners.** Drag a window to the left or right edge: a preview
   shows the half it will take, and dropping puts it there. Into a corner, it takes
@@ -13,6 +13,9 @@ Windows 11 snap layouts and PowerToys FancyZones: drag a window, drop it into a 
   drops down with layouts (halves, thirds, ⅔ + ⅓, quarters, full, and a 25 / 50 / 25
   centre for wide screens). Drop on a cell
   and the window fills it.
+- **Your own layouts.** Add up to three in the settings: one to four columns at
+  the widths you choose, each column whole or split into a top and a bottom half.
+  They show in the panel before the scratchpad.
 - **Scratchpad.** The last tile in the panel sends the window to the scratchpad,
   like <kbd>Super</kbd> + <kbd>Alt</kbd> + <kbd>S</kbd>.
 - **Shared zones fan out.** Drop a window on a zone that is taken and the windows
@@ -20,7 +23,11 @@ Windows 11 snap layouts and PowerToys FancyZones: drag a window, drop it into a 
   When one is dragged out or closed, the rest close up.
 - **Peek.** Rest the pointer on a covered window in a fan and it comes up,
   see-through and without taking focus. Click to keep it, move away to put it back.
-- **Drag out.** Pulling a placed window away gives it back its earlier size.
+- **Resize together.** Resize a placed window and the placed windows along the
+  edge you moved follow, keeping the gap, like Windows snap groups. Windows in a
+  fan stay as they are.
+- **Drag out.** Pulling a placed window away gives it back its earlier size,
+  also after a Hyprland config reload.
 - **No key bindings.** Window Zones adds none, so every Omarchy shortcut keeps working.
 
 Works with titlebar drags and <kbd>Super</kbd> + left-drag, on every monitor.
@@ -44,8 +51,23 @@ panel, fanning, peeking and focus follows mouse on or off, scale the size
 new windows open at, and set the windows per fan, the fan
 offset, the peek delay and the peek opacity. Changes apply at once.
 
+<img src="custom-layouts.png" alt="Three custom layouts in the settings: columns, the sliders where they meet, and split buttons" width="282" align="right">
+
+Under **Custom layouts**, *Add layout* starts one at 60 / 40 with the right
+column split. Pick one to four columns, move the sliders where two columns
+meet (each column keeps at least 5 %), and use the *Split* buttons to cut a
+column into a top and a bottom half. The preview shows it as the panel will.
+
 The values sit on the widget's entry in `~/.config/omarchy/shell.json`, so
-`omarchy bar set io.github.derjungeherr.window-zones fanMax 3` works too.
+`omarchy bar set io.github.derjungeherr.window-zones fanMax 3` works too, and so
+does a layout list:
+
+```sh
+omarchy bar set io.github.derjungeherr.window-zones layouts \
+  '[{"cols":[60,40],"split":[false,true]}]' --json
+```
+
+<br clear="right">
 
 ## How it works
 
@@ -61,7 +83,9 @@ Hyprland with `hyprctl eval`, watches instead:
   still over a target, Window Zones nudges the cursor one pixel: a held window follows,
   a dropped one does not, and the cursor goes back.
 
-Nothing is written to your config files.
+Nothing is written to your config files. The earlier sizes of placed windows are
+kept in `$XDG_RUNTIME_DIR/window-zones-snapped.lua`, so a config reload does not
+lose them; it is gone after logging out.
 
 ## Limits
 
@@ -69,7 +93,6 @@ Nothing is written to your config files.
   pinned, fullscreen and grouped windows are left alone.
 - A very short flick can finish before Window Zones notices the drag.
 - Apps with a minimum size may not shrink into a small cell.
-- A Hyprland config reload forgets earlier sizes (changing a setting does not): a window placed before it keeps its placed size when dragged out.
 
 ## Development
 
@@ -86,6 +109,9 @@ be empty, floating and in the focused monitor's block (Omarchy renumbers the
 others); by default it takes slot 9 of that block. It takes over the mouse for
 about a minute and puts its windows and settings back afterwards. It needs
 `foot`, `jq`, `lua`, a C compiler and the Wayland client headers.
+
+`test/e2e/demo.sh <monitor> <workspace>` records `demo.gif` the same way, with
+neutral terminals and without the dock.
 
 Link the checkout into `~/.config/omarchy/plugins/io.github.derjungeherr.window-zones`,
 enable it, and run `omarchy restart shell` after adding files.

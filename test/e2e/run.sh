@@ -79,6 +79,7 @@ near() {
 # --- setup --------------------------------------------------------------
 setting() { local v; v=$(omarchy bar get $ID "$1" 2>/dev/null); [[ $v =~ ^(true|false|[0-9]+)$ ]] && echo "$v" || echo "$2"; }
 HOVER=$(setting hoverFocus false) FAN_OFFSET=$(setting fanOffset 24) NEW_SIZE=$(setting newWindowSize 100)
+LAYOUTS=$(omarchy bar get $ID layouts 2>/dev/null | jq -c 'if type == "array" then . else [] end' 2>/dev/null || echo '[]')
 BACK_WS=$(hyprctl activeworkspace -j | jq -r .id)   # where the monitor was, to return to
 
 cleanup() {
@@ -89,6 +90,7 @@ cleanup() {
   omarchy bar set $ID fanOffset "$FAN_OFFSET" --json >/dev/null
   omarchy bar set $ID newWindowSize "$NEW_SIZE" --json >/dev/null
   omarchy bar set $ID hoverFocus "$HOVER" --json >/dev/null
+  omarchy bar set $ID layouts "${LAYOUTS:-[]}" --json >/dev/null
   [[ $BACK_WS =~ ^-?[0-9]+$ ]] && hypr "hl.dsp.focus({ workspace = \"$BACK_WS\" })"
   rm -rf "$TMP"
 }
@@ -105,12 +107,7 @@ omarchy bar set $ID hoverFocus false --json >/dev/null; sleep 2
 hypr "hl.dsp.focus({ workspace = \"$WS\" })"; sleep 0.4
 [[ $(omarchy hyprland workspace layout current "$WS") == floating ]] || { echo "workspace $WS is not floating"; exit 1; }
 monitor
-hyprctl eval 'local d = window_zones_dock
-  local f = io.open("'"$TMP"'/env", "w")
-  local function opt(k, d) local ok, v = pcall(hl.get_config, k) if type(v) == "table" then v = v.top end return ok and v or d end
-  f:write(d and d.edge or "none", " ", d and d.size or 0, " ", opt("plugin:hyprbars:bar_height", 0), " ", opt("general:gaps_out", 10), " ", opt("general:gaps_in", 5), "\n")
-  f:close()' >/dev/null
-sleep 0.2
+"$HERE/plugin-env.sh" "$TMP" || { echo "could not read the running plugin"; exit 1; }
 read -r MX MY MW MH < <(jq -r '"\(.x) \(.y) \(.width / .scale | floor) \(.height / .scale | floor)"' "$TMP/monitor.json")
 echo "monitor $(jq -r .name "$TMP/monitor.json") ${MW}x${MH} at $MX,$MY, env: $(cat "$TMP/env")"
 
@@ -162,6 +159,14 @@ reset $W1; panel_drop $W1 Scratchpad 1
 [[ $(hyprctl clients -j | jq -r --arg c "$W1" '.[]|select(.class==$c)|.workspace.name') == special:scratchpad ]] && ok "panel scratchpad" || bad "panel scratchpad" "not on special:scratchpad"
 hypr "hl.dsp.window.move({ window = \"class:$W1\", workspace = \"$WS\" })"; sleep 0.3
 
+# A custom layout joins the panel before the scratchpad: 60 / 40, the right column split.
+omarchy bar set $ID layouts '[{"cols":[60,40],"split":[false,true]}]' --json >/dev/null; sleep 2
+"$HERE/plugin-env.sh" "$TMP"
+reset $W1; panel_drop $W1 "Custom 1" 3;                          near "panel custom layout" $W1 $(expect cell "Custom 1" 3)
+reset $W1; panel_drop $W1 Scratchpad 1
+[[ $(hyprctl clients -j | jq -r --arg c "$W1" '.[]|select(.class==$c)|.workspace.name') == special:scratchpad ]] && ok "scratchpad after custom layouts" || bad "scratchpad after custom layouts" "not on special:scratchpad"
+hypr "hl.dsp.window.move({ window = \"class:$W1\", workspace = \"$WS\" })"; sleep 0.3
+
 # --- plain drag and restore ---------------------------------------------
 reset $W1; drag_to $W1 $FX $FY
 drag_to $W1 $((MX + MW / 2)) $((MY + MH / 2))
@@ -172,6 +177,12 @@ omarchy bar set $ID fanOffset $((FAN_OFFSET + 2)) --json >/dev/null; sleep 2
 omarchy bar set $ID fanOffset "$FAN_OFFSET" --json >/dev/null; sleep 2
 drag_to $W1 $((MX + MW / 2)) $((MY + MH / 2))
 read -r x y w h < <(geo $W1); [[ "$w $h" == "900 600" ]] && ok "restore survives a settings change" || bad "restore survives a settings change" "got $w x $h"
+
+# A config reload starts a fresh Lua state; the restore size comes back from the state file.
+reset $W1; drag_to $W1 $FX $FY
+hyprctl reload >/dev/null; sleep 3
+drag_to $W1 $((MX + MW / 2)) $((MY + MH / 2))
+read -r x y w h < <(geo $W1); [[ "$w $h" == "900 600" ]] && ok "restore survives a config reload" || bad "restore survives a config reload" "got $w x $h"
 
 # --- fans ---------------------------------------------------------------
 open $W2; open $W3
@@ -193,6 +204,22 @@ hypr "hl.dsp.focus({ window = \"class:$W3\" })"; sleep 0.2
 drag_to $W3 $((MX + MW / 2)) $((MY + MH / 2))
 near "drag out: last one fills the zone" $W1 $(expect cell Halves $FCELL)
 close $W1 $W3
+
+# --- coupled resizing ---------------------------------------------------
+open $W1; open $W2
+reset $W1; panel_drop $W1 Halves 1
+reset $W2; panel_drop $W2 Halves 2
+read -r nx ny nw nh < <(expect cell Halves 2)
+# Like dragging W1's right edge: 120 px wider, its left edge where it was.
+# (A relative resize would grow a floating window on both sides.)
+read -r x y w h < <(geo $W1)
+hypr "hl.dsp.focus({ window = \"class:$W1\" })"; sleep 0.2
+hypr "hl.dsp.window.resize({ window = \"class:$W1\", x = $((w + 120)), y = $h, relative = false })"
+hypr "hl.dsp.window.move({ window = \"class:$W1\", x = $x, y = $y })"; sleep 0.5
+near "coupled resize: the neighbour follows" $W2 $((nx + 120)) $ny $((nw - 120)) $nh
+drag_to $W1 $((MX + MW / 2)) $((MY + MH / 2))
+read -r x y w h < <(geo $W1); [[ "$w $h" == "900 600" ]] && ok "coupled resize: drag out still restores" || bad "coupled resize: drag out still restores" "got $w x $h"
+close $W1 $W2
 
 # --- new window size ----------------------------------------------------
 omarchy bar set $ID newWindowSize 120 --json >/dev/null; sleep 2

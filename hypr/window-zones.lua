@@ -26,7 +26,9 @@ local FAN_MAX = 5      -- windows fanned out per zone; more start again at the b
 local PEEK_MS = 250    -- hover over a covered window in a fan this long to peek at it
 local PEEK_OPACITY = 0.85
 
-M.LAYOUTS = {
+-- Edges and corners refer to these by position (Halves first, Quarters), so
+-- custom layouts go after them, and the scratchpad stays last.
+local BUILTIN = {
   { name = "Halves", cells = { { 0, 0, 1/2, 1 }, { 1/2, 0, 1, 1 } } },
   { name = "Thirds", cells = { { 0, 0, 1/3, 1 }, { 1/3, 0, 2/3, 1 }, { 2/3, 0, 1, 1 } } },
   { name = "Wide left", cells = { { 0, 0, 2/3, 1 }, { 2/3, 0, 1, 1 } } },
@@ -34,12 +36,60 @@ M.LAYOUTS = {
   { name = "Quarters", cells = { { 0, 0, 1/2, 1/2 }, { 1/2, 0, 1, 1/2 }, { 0, 1/2, 1/2, 1 }, { 1/2, 1/2, 1, 1 } } },
   { name = "Full", cells = { { 0, 0, 1, 1 } } },
   { name = "Centre", cells = { { 0, 0, 1/4, 1 }, { 1/4, 0, 3/4, 1 }, { 3/4, 0, 1, 1 } } },
-  { name = "Scratchpad", scratchpad = true, cells = { { 0, 0, 1, 1 } } },
 }
+local SCRATCHPAD = { name = "Scratchpad", scratchpad = true, cells = { { 0, 0, 1, 1 } } }
+local MAX_CUSTOM, MAX_COLS = 3, 4
 
-for i, layout in ipairs(M.LAYOUTS) do
+for i, layout in ipairs(BUILTIN) do
   if layout.name == "Quarters" then M.QUARTERS = i end
 end
+
+-- A layout from the settings: { cols = { widths }, split = { bools } }. Widths
+-- are relative (percent in the popup), each kept within 5..95 so no cell gets
+-- too thin; a split column holds a top and a bottom half. nil when malformed:
+-- this comes from shell.json, which can be edited by hand.
+function M.custom_cells(spec)
+  if type(spec) ~= "table" or type(spec.cols) ~= "table" then return end
+  local cols, split = spec.cols, type(spec.split) == "table" and spec.split or {}
+  if #cols < 1 or #cols > MAX_COLS then return end
+  local widths, sum = {}, 0
+  for i = 1, #cols do
+    local v = cols[i]
+    if type(v) ~= "number" or v ~= v or v == math.huge or v == -math.huge then return end
+    widths[i] = math.min(95, math.max(5, v))
+    sum = sum + widths[i]
+  end
+  local cells, x0 = {}, 0
+  for i, v in ipairs(widths) do
+    local x1 = i == #widths and 1 or x0 + v / sum
+    if split[i] == true then
+      cells[#cells + 1] = { x0, 0, x1, 1/2 }
+      cells[#cells + 1] = { x0, 1/2, x1, 1 }
+    else
+      cells[#cells + 1] = { x0, 0, x1, 1 }
+    end
+    x0 = x1
+  end
+  return cells
+end
+
+-- The panel's layouts: the built-ins, then up to three valid custom ones, then the scratchpad.
+function M.layouts(custom)
+  local list = {}
+  for _, l in ipairs(BUILTIN) do list[#list + 1] = l end
+  local n = 0
+  for _, spec in ipairs(type(custom) == "table" and custom or {}) do
+    local cells = n < MAX_CUSTOM and M.custom_cells(spec)
+    if cells then
+      n = n + 1
+      list[#list + 1] = { name = "Custom " .. n, cells = cells }
+    end
+  end
+  list[#list + 1] = SCRATCHPAD
+  return list
+end
+
+M.LAYOUTS = M.layouts()
 
 -- Usable box of a monitor in global logical coordinates: minus the bar and
 -- other reserved edges, and minus the dock, which reserves nothing itself.
@@ -202,6 +252,7 @@ FAN_X = within("fanOffset", FAN_X, 0, 60)
 PEEK_MS = within("peekDelay", PEEK_MS, 0, 2000)
 PEEK_OPACITY = within("peekOpacity", PEEK_OPACITY * 100, 10, 100) / 100
 local NEW_SIZE = within("newWindowSize", 100, 50, 150)
+M.LAYOUTS = M.layouts(setting("layouts", {}))
 
 local function xy(t) return t.x or t[1], t.y or t[2] end
 
@@ -250,8 +301,57 @@ end
 local function dispatch(d) pcall(hl.dispatch, d) end
 
 -- Windows Window Zones placed: their size before, the box they got, and their zone.
-local snapped = previous and previous.snapped or {}
+-- Kept in a file too, since a config reload starts a fresh Lua state; the runtime
+-- dir is emptied at logout, as window addresses are.
+local STATE = (os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/window-zones-snapped.lua"
+
+local function finite(v) return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge end
+
+-- The file is data: read without access to any globals, and only well-formed
+-- entries of windows that still exist are kept.
+local function restore()
+  local chunk = loadfile(STATE, "t", {})
+  local ok, t = pcall(chunk or error)
+  if not ok or type(t) ~= "table" then return {} end
+  local alive = {}
+  for _, w in ipairs(hl.get_windows()) do alive[w.address] = true end
+  local function numbers(r, keys)
+    if type(r) ~= "table" then return false end
+    for _, k in ipairs(keys) do if not finite(r[k]) then return false end end
+    return true
+  end
+  local kept = {}
+  for addr, s in pairs(t) do
+    if type(addr) == "string" and addr:match("^0x%x+$") and alive[addr] and numbers(s, { "w", "h" })
+        and (s.box == nil or numbers(s.box, { "x", "y", "w", "h" }))
+        and (s.zone == nil or numbers(s.zone, { "x", "y", "w", "h", "ws", "bar" })) then
+      kept[addr] = s
+    end
+  end
+  return kept
+end
+
+local snapped = previous and previous.snapped or restore()
 M.snapped = snapped
+
+local function save()
+  local function lua(v)
+    if type(v) ~= "table" then return finite(v) and string.format("%q", v) or "nil" end
+    local parts = {}
+    for k, x in pairs(v) do parts[#parts + 1] = "[" .. string.format("%q", k) .. "]=" .. lua(x) end
+    return "{" .. table.concat(parts, ",") .. "}"
+  end
+  local f = io.open(STATE .. ".tmp", "w")
+  if not f then return end
+  f:write("return ", lua(snapped), "\n")
+  f:close()
+  os.rename(STATE .. ".tmp", STATE)
+end
+
+local function forget(addr)
+  snapped[addr] = nil
+  save()
+end
 
 local function place(addr, box, zone)
   local w = window(addr)
@@ -261,6 +361,7 @@ local function place(addr, box, zone)
   local target = { x = box.x, y = box.y + zone.bar, w = box.w, h = box.h - zone.bar }
   if target.w < 50 or target.h < 50 then return end
   snapped[addr].box, snapped[addr].zone = target, zone
+  save()
   local win = "address:" .. addr
   -- A window dragged near another monitor may have been handed to it on the
   -- way: put it on the zone's workspace before placing it there.
@@ -394,7 +495,7 @@ local function finish(drop)
   if not (drop and d and d.target) then return end
   local layout = M.LAYOUTS[d.target.layout]
   if layout.scratchpad then
-    snapped[d.addr] = nil
+    forget(d.addr)
     dispatch(hl.dsp.window.move({ window = "address:" .. d.addr, workspace = "special:scratchpad", follow = false }))
   else
     local zone = zone_of(d)
@@ -409,7 +510,7 @@ end
 local function unsnap(w, cx)
   local s = snapped[w.address]
   if not s then return end
-  snapped[w.address] = nil
+  forget(w.address)
   if s.zone then arrange(s.zone, members(s.zone, w.address), false) end
   local wx, wy = xy(w.at)
   local ww, wh = xy(w.size)
@@ -418,6 +519,58 @@ local function unsnap(w, cx)
   local nx = math.floor(cx - (cx - wx) / ww * s.w + 0.5)
   dispatch(hl.dsp.window.resize({ window = win, x = s.w, y = s.h, relative = false }))
   dispatch(hl.dsp.window.move({ window = win, x = nx, y = wy }))
+end
+
+-- Coupled resizing: once a placed window's new size holds for a tick, the
+-- placed windows along the edges it moved follow, keeping the gap, as with
+-- Windows snap groups. Only zones holding a single window take part: in a fan
+-- it is unclear which card should follow.
+local resizing
+
+local function alone(zone, addr) return #members(zone, addr) == 0 end
+
+local function zone_from(box, zone)
+  return { x = box.x, y = box.y - zone.bar, w = box.w, h = box.h + zone.bar, ws = zone.ws, bar = zone.bar }
+end
+
+local function couple(w)
+  local s = snapped[w.address]
+  if not (s and s.box and s.zone) or not alone(s.zone, w.address) then return end
+  local x, y = xy(w.at)
+  local ww, wh = xy(w.size)
+  local o, n = s.box, { x = x, y = y, w = ww, h = wh }
+  -- Between two placed windows: twice gaps_in, plus a titlebar above the lower one.
+  local reach = 2 * opt("general:gaps_in", 5) + s.zone.bar + TOL
+  local function near(gap) return gap >= -TOL and gap <= reach end
+  for addr, q in pairs(snapped) do
+    local b = q.box
+    if addr ~= w.address and b and q.zone and q.zone.ws == s.zone.ws and window(addr) and alone(q.zone, addr) then
+      local nb = { x = b.x, y = b.y, w = b.w, h = b.h }
+      local beside = b.y < o.y + o.h and o.y < b.y + b.h
+      local above_below = b.x < o.x + o.w and o.x < b.x + b.w
+      if beside and near(b.x - (o.x + o.w)) then
+        local d = (n.x + n.w) - (o.x + o.w)
+        nb.x, nb.w = b.x + d, b.w - d
+      elseif beside and near(o.x - (b.x + b.w)) then
+        nb.w = b.w + (n.x - o.x)
+      end
+      if above_below and near(b.y - (o.y + o.h)) then
+        local d = (n.y + n.h) - (o.y + o.h)
+        nb.y, nb.h = b.y + d, b.h - d
+      elseif above_below and near(o.y - (b.y + b.h)) then
+        nb.h = b.h + (n.y - o.y)
+      end
+      local changed = nb.x ~= b.x or nb.y ~= b.y or nb.w ~= b.w or nb.h ~= b.h
+      if changed and nb.w >= 50 and nb.h >= 50 then
+        local win = "address:" .. addr
+        dispatch(hl.dsp.window.resize({ window = win, x = nb.w, y = nb.h, relative = false }))
+        dispatch(hl.dsp.window.move({ window = win, x = nb.x, y = nb.y }))
+        q.box, q.zone = nb, zone_from(nb, q.zone)
+      end
+    end
+  end
+  s.box, s.zone = n, zone_from(n, s.zone)
+  save()
 end
 
 local function start(w, cx)
@@ -451,7 +604,21 @@ local function idle_tick()
   local now = { addr = w.address, x = wx, y = wy, w = ww, h = wh, cx = c.x, cy = c.y }
   local p = last
   last = now
-  if not p or p.addr ~= now.addr or p.w ~= now.w or p.h ~= now.h then return end
+  if p and p.addr == now.addr then
+    if p.w ~= now.w or p.h ~= now.h then
+      -- Only a resize that starts from the placed box is the user's: placing
+      -- and coupling resize windows too, from some other size.
+      local s = snapped[now.addr]
+      if s and s.box and (resizing == now.addr or (math.abs(p.w - s.box.w) <= TOL and math.abs(p.h - s.box.h) <= TOL)) then
+        resizing = now.addr
+      end
+      return
+    elseif resizing == now.addr then
+      resizing = nil
+      couple(w)
+    end
+  end
+  if not p or p.addr ~= now.addr then return end
   local dx, dy, dcx, dcy = now.x - p.x, now.y - p.y, now.cx - p.cx, now.cy - p.cy
   if (dx ~= 0 or dy ~= 0) and math.abs(dx - dcx) <= TOL and math.abs(dy - dcy) <= TOL then
     start(w, c.x)
@@ -670,7 +837,7 @@ end
 M.closed = hl.on("window.close", safe(function(w)
   local s = w and snapped[w.address]
   if not s then return end
-  snapped[w.address] = nil
+  forget(w.address)
   local addr = w.address
   if s.zone then
     hl.timer(safe(function() arrange(s.zone, members(s.zone, addr), false) end), { timeout = 1, type = "oneshot" })
