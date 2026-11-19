@@ -107,6 +107,15 @@ reload()
 local s = window_zones.snapped["0xa"]
 assert(s and s.w == 800 and s.h == 600 and s.box and s.zone, "the restore size is back after a reload")
 
+-- Custom layouts from the settings join the panel before the scratchpad.
+window_zones_settings = { layouts = { { cols = { 60, 40 }, split = { false, true } } } }
+reload()
+local L = window_zones.LAYOUTS
+assert(L[#L - 1].name == "Custom 1" and #L[#L - 1].cells == 3 and L[#L].scratchpad, "a custom layout from the settings")
+window_zones_settings = nil
+reload()
+assert(not window_zones.LAYOUTS[#window_zones.LAYOUTS - 1].name:match("^Custom"), "gone again without the setting")
+
 -- A state file that tries to run code is ignored.
 local f = assert(io.open(state_file, "w"))
 f:write('return { ["0xa"] = { w = os.exit(1), h = 1 } }')

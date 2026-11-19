@@ -1,7 +1,7 @@
 -- Where Window Zones should put things, from the plugin's own geometry.
 --   lua expect.lua <monitor.json> <env> cell <layout> <cell> [n k]   -> client "x y w h"
 --   lua expect.lua <monitor.json> <env> panel <layout> <cell>        -> panel cell centre "x y"
--- <monitor.json> is one monitor from `hyprctl monitors -j`; <env> holds
+-- <monitor.json> is one monitor from `hyprctl monitors -j`; <env> (from plugin-env.sh) holds
 -- "dock_edge dock_size bar gaps_out gaps_in" as read from the running plugin.
 local root = arg[0]:match("^(.*)/test/e2e/[^/]+$") or "."
 local M = dofile(root .. "/hypr/window-zones.lua")
@@ -17,6 +17,10 @@ local mon = { x = num(json, "x"), y = num(json, "y"), width = num(json, "width")
 local dock_edge, dock_size, bar, out, inn = read(arg[2]):match("(%S+) (%S+) (%S+) (%S+) (%S+)")
 local dock = dock_edge ~= "none" and { edge = dock_edge, size = tonumber(dock_size) } or nil
 bar, out, inn = tonumber(bar), tonumber(out), tonumber(inn)
+
+-- The running plugin's layouts (custom ones shift the panel), when plugin-env.sh wrote them.
+local chunk = loadfile(arg[2] .. ".layouts", "t", {})
+if chunk then M.LAYOUTS = chunk() end
 
 local layout
 for i, l in ipairs(M.LAYOUTS) do if l.name == arg[4] then layout = i end end

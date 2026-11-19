@@ -79,6 +79,7 @@ near() {
 # --- setup --------------------------------------------------------------
 setting() { local v; v=$(omarchy bar get $ID "$1" 2>/dev/null); [[ $v =~ ^(true|false|[0-9]+)$ ]] && echo "$v" || echo "$2"; }
 HOVER=$(setting hoverFocus false) FAN_OFFSET=$(setting fanOffset 24) NEW_SIZE=$(setting newWindowSize 100)
+LAYOUTS=$(omarchy bar get $ID layouts 2>/dev/null | jq -c 'if type == "array" then . else [] end' 2>/dev/null || echo '[]')
 BACK_WS=$(hyprctl activeworkspace -j | jq -r .id)   # where the monitor was, to return to
 
 cleanup() {
@@ -89,6 +90,7 @@ cleanup() {
   omarchy bar set $ID fanOffset "$FAN_OFFSET" --json >/dev/null
   omarchy bar set $ID newWindowSize "$NEW_SIZE" --json >/dev/null
   omarchy bar set $ID hoverFocus "$HOVER" --json >/dev/null
+  omarchy bar set $ID layouts "${LAYOUTS:-[]}" --json >/dev/null
   [[ $BACK_WS =~ ^-?[0-9]+$ ]] && hypr "hl.dsp.focus({ workspace = \"$BACK_WS\" })"
   rm -rf "$TMP"
 }
@@ -105,12 +107,7 @@ omarchy bar set $ID hoverFocus false --json >/dev/null; sleep 2
 hypr "hl.dsp.focus({ workspace = \"$WS\" })"; sleep 0.4
 [[ $(omarchy hyprland workspace layout current "$WS") == floating ]] || { echo "workspace $WS is not floating"; exit 1; }
 monitor
-hyprctl eval 'local d = window_zones_dock
-  local f = io.open("'"$TMP"'/env", "w")
-  local function opt(k, d) local ok, v = pcall(hl.get_config, k) if type(v) == "table" then v = v.top end return ok and v or d end
-  f:write(d and d.edge or "none", " ", d and d.size or 0, " ", opt("plugin:hyprbars:bar_height", 0), " ", opt("general:gaps_out", 10), " ", opt("general:gaps_in", 5), "\n")
-  f:close()' >/dev/null
-sleep 0.2
+"$HERE/plugin-env.sh" "$TMP" || { echo "could not read the running plugin"; exit 1; }
 read -r MX MY MW MH < <(jq -r '"\(.x) \(.y) \(.width / .scale | floor) \(.height / .scale | floor)"' "$TMP/monitor.json")
 echo "monitor $(jq -r .name "$TMP/monitor.json") ${MW}x${MH} at $MX,$MY, env: $(cat "$TMP/env")"
 
@@ -160,6 +157,14 @@ reset $W1; panel_drop $W1 Thirds 2;                              near "panel thi
 reset $W1; panel_drop $W1 Centre 2;                              near "panel centre" $W1 $(expect cell Centre 2)
 reset $W1; panel_drop $W1 Scratchpad 1
 [[ $(hyprctl clients -j | jq -r --arg c "$W1" '.[]|select(.class==$c)|.workspace.name') == special:scratchpad ]] && ok "panel scratchpad" || bad "panel scratchpad" "not on special:scratchpad"
+hypr "hl.dsp.window.move({ window = \"class:$W1\", workspace = \"$WS\" })"; sleep 0.3
+
+# A custom layout joins the panel before the scratchpad: 60 / 40, the right column split.
+omarchy bar set $ID layouts '[{"cols":[60,40],"split":[false,true]}]' --json >/dev/null; sleep 2
+"$HERE/plugin-env.sh" "$TMP"
+reset $W1; panel_drop $W1 "Custom 1" 3;                          near "panel custom layout" $W1 $(expect cell "Custom 1" 3)
+reset $W1; panel_drop $W1 Scratchpad 1
+[[ $(hyprctl clients -j | jq -r --arg c "$W1" '.[]|select(.class==$c)|.workspace.name') == special:scratchpad ]] && ok "scratchpad after custom layouts" || bad "scratchpad after custom layouts" "not on special:scratchpad"
 hypr "hl.dsp.window.move({ window = \"class:$W1\", workspace = \"$WS\" })"; sleep 0.3
 
 # --- plain drag and restore ---------------------------------------------

@@ -72,8 +72,25 @@ Item {
       var v = entry[key]
       if (!/^[A-Za-z]+$/.test(key)) continue
       if (typeof v === "boolean" || (typeof v === "number" && isFinite(v))) parts.push(key + " = " + v)
+      else if (key === "layouts") parts.push("layouts = " + layoutsLua(v))
     }
     return "{ " + parts.join(", ") + " }"
+  }
+
+  // Custom layouts as a Lua table of numbers and booleans only: anything else
+  // is dropped here, and window-zones.lua checks the shape once more.
+  function layoutsLua(list) {
+    var out = []
+    if (!Array.isArray(list)) return "{}"
+    for (var i = 0; i < list.length && out.length < 3; i++) {
+      var l = list[i] || {}
+      var cols = Array.isArray(l.cols) ? l.cols : []
+      if (cols.length < 1 || cols.length > 4) continue
+      if (!cols.every(function(c) { return typeof c === "number" && isFinite(c) })) continue
+      var split = cols.map(function(_, j) { return Array.isArray(l.split) && l.split[j] === true })
+      out.push("{ cols = { " + cols.join(", ") + " }, split = { " + split.join(", ") + " } }")
+    }
+    return "{ " + out.join(", ") + " }"
   }
 
   onDockSizeChanged: if (loader.loaded) load()

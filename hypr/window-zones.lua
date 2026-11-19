@@ -26,7 +26,9 @@ local FAN_MAX = 5      -- windows fanned out per zone; more start again at the b
 local PEEK_MS = 250    -- hover over a covered window in a fan this long to peek at it
 local PEEK_OPACITY = 0.85
 
-M.LAYOUTS = {
+-- Edges and corners refer to these by position (Halves first, Quarters), so
+-- custom layouts go after them, and the scratchpad stays last.
+local BUILTIN = {
   { name = "Halves", cells = { { 0, 0, 1/2, 1 }, { 1/2, 0, 1, 1 } } },
   { name = "Thirds", cells = { { 0, 0, 1/3, 1 }, { 1/3, 0, 2/3, 1 }, { 2/3, 0, 1, 1 } } },
   { name = "Wide left", cells = { { 0, 0, 2/3, 1 }, { 2/3, 0, 1, 1 } } },
@@ -34,12 +36,60 @@ M.LAYOUTS = {
   { name = "Quarters", cells = { { 0, 0, 1/2, 1/2 }, { 1/2, 0, 1, 1/2 }, { 0, 1/2, 1/2, 1 }, { 1/2, 1/2, 1, 1 } } },
   { name = "Full", cells = { { 0, 0, 1, 1 } } },
   { name = "Centre", cells = { { 0, 0, 1/4, 1 }, { 1/4, 0, 3/4, 1 }, { 3/4, 0, 1, 1 } } },
-  { name = "Scratchpad", scratchpad = true, cells = { { 0, 0, 1, 1 } } },
 }
+local SCRATCHPAD = { name = "Scratchpad", scratchpad = true, cells = { { 0, 0, 1, 1 } } }
+local MAX_CUSTOM, MAX_COLS = 3, 4
 
-for i, layout in ipairs(M.LAYOUTS) do
+for i, layout in ipairs(BUILTIN) do
   if layout.name == "Quarters" then M.QUARTERS = i end
 end
+
+-- A layout from the settings: { cols = { widths }, split = { bools } }. Widths
+-- are relative (percent in the popup), each kept within 5..95 so no cell gets
+-- too thin; a split column holds a top and a bottom half. nil when malformed:
+-- this comes from shell.json, which can be edited by hand.
+function M.custom_cells(spec)
+  if type(spec) ~= "table" or type(spec.cols) ~= "table" then return end
+  local cols, split = spec.cols, type(spec.split) == "table" and spec.split or {}
+  if #cols < 1 or #cols > MAX_COLS then return end
+  local widths, sum = {}, 0
+  for i = 1, #cols do
+    local v = cols[i]
+    if type(v) ~= "number" or v ~= v or v == math.huge or v == -math.huge then return end
+    widths[i] = math.min(95, math.max(5, v))
+    sum = sum + widths[i]
+  end
+  local cells, x0 = {}, 0
+  for i, v in ipairs(widths) do
+    local x1 = i == #widths and 1 or x0 + v / sum
+    if split[i] == true then
+      cells[#cells + 1] = { x0, 0, x1, 1/2 }
+      cells[#cells + 1] = { x0, 1/2, x1, 1 }
+    else
+      cells[#cells + 1] = { x0, 0, x1, 1 }
+    end
+    x0 = x1
+  end
+  return cells
+end
+
+-- The panel's layouts: the built-ins, then up to three valid custom ones, then the scratchpad.
+function M.layouts(custom)
+  local list = {}
+  for _, l in ipairs(BUILTIN) do list[#list + 1] = l end
+  local n = 0
+  for _, spec in ipairs(type(custom) == "table" and custom or {}) do
+    local cells = n < MAX_CUSTOM and M.custom_cells(spec)
+    if cells then
+      n = n + 1
+      list[#list + 1] = { name = "Custom " .. n, cells = cells }
+    end
+  end
+  list[#list + 1] = SCRATCHPAD
+  return list
+end
+
+M.LAYOUTS = M.layouts()
 
 -- Usable box of a monitor in global logical coordinates: minus the bar and
 -- other reserved edges, and minus the dock, which reserves nothing itself.
@@ -202,6 +252,7 @@ FAN_X = within("fanOffset", FAN_X, 0, 60)
 PEEK_MS = within("peekDelay", PEEK_MS, 0, 2000)
 PEEK_OPACITY = within("peekOpacity", PEEK_OPACITY * 100, 10, 100) / 100
 local NEW_SIZE = within("newWindowSize", 100, 50, 150)
+M.LAYOUTS = M.layouts(setting("layouts", {}))
 
 local function xy(t) return t.x or t[1], t.y or t[2] end
 

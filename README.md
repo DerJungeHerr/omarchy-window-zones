@@ -13,6 +13,9 @@ Windows 11 snap layouts and PowerToys FancyZones: drag a window, drop it into a 
   drops down with layouts (halves, thirds, ⅔ + ⅓, quarters, full, and a 25 / 50 / 25
   centre for wide screens). Drop on a cell
   and the window fills it.
+- **Your own layouts.** Add up to three in the settings: one to four columns at
+  the widths you choose, each column whole or split into a top and a bottom half.
+  They show in the panel before the scratchpad.
 - **Scratchpad.** The last tile in the panel sends the window to the scratchpad,
   like <kbd>Super</kbd> + <kbd>Alt</kbd> + <kbd>S</kbd>.
 - **Shared zones fan out.** Drop a window on a zone that is taken and the windows
@@ -45,8 +48,23 @@ panel, fanning, peeking and focus follows mouse on or off, scale the size
 new windows open at, and set the windows per fan, the fan
 offset, the peek delay and the peek opacity. Changes apply at once.
 
+<img src="custom-layouts.png" alt="Three custom layouts in the settings: columns, the sliders where they meet, and split buttons" width="282" align="right">
+
+Under **Custom layouts**, *Add layout* starts one at 60 / 40 with the right
+column split. Pick one to four columns, move the sliders where two columns
+meet (each column keeps at least 5 %), and use the *Split* buttons to cut a
+column into a top and a bottom half. The preview shows it as the panel will.
+
 The values sit on the widget's entry in `~/.config/omarchy/shell.json`, so
-`omarchy bar set io.github.derjungeherr.window-zones fanMax 3` works too.
+`omarchy bar set io.github.derjungeherr.window-zones fanMax 3` works too, and so
+does a layout list:
+
+```sh
+omarchy bar set io.github.derjungeherr.window-zones layouts \
+  '[{"cols":[60,40],"split":[false,true]}]' --json
+```
+
+<br clear="right">
 
 ## How it works
 
