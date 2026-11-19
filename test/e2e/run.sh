@@ -173,6 +173,12 @@ omarchy bar set $ID fanOffset "$FAN_OFFSET" --json >/dev/null; sleep 2
 drag_to $W1 $((MX + MW / 2)) $((MY + MH / 2))
 read -r x y w h < <(geo $W1); [[ "$w $h" == "900 600" ]] && ok "restore survives a settings change" || bad "restore survives a settings change" "got $w x $h"
 
+# A config reload starts a fresh Lua state; the restore size comes back from the state file.
+reset $W1; drag_to $W1 $FX $FY
+hyprctl reload >/dev/null; sleep 3
+drag_to $W1 $((MX + MW / 2)) $((MY + MH / 2))
+read -r x y w h < <(geo $W1); [[ "$w $h" == "900 600" ]] && ok "restore survives a config reload" || bad "restore survives a config reload" "got $w x $h"
+
 # --- fans ---------------------------------------------------------------
 open $W2; open $W3
 for c in $W1 $W2 $W3; do reset $c; drag_to $c $FX $FY; done

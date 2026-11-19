@@ -250,8 +250,57 @@ end
 local function dispatch(d) pcall(hl.dispatch, d) end
 
 -- Windows Window Zones placed: their size before, the box they got, and their zone.
-local snapped = previous and previous.snapped or {}
+-- Kept in a file too, since a config reload starts a fresh Lua state; the runtime
+-- dir is emptied at logout, as window addresses are.
+local STATE = (os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/window-zones-snapped.lua"
+
+local function finite(v) return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge end
+
+-- The file is data: read without access to any globals, and only well-formed
+-- entries of windows that still exist are kept.
+local function restore()
+  local chunk = loadfile(STATE, "t", {})
+  local ok, t = pcall(chunk or error)
+  if not ok or type(t) ~= "table" then return {} end
+  local alive = {}
+  for _, w in ipairs(hl.get_windows()) do alive[w.address] = true end
+  local function numbers(r, keys)
+    if type(r) ~= "table" then return false end
+    for _, k in ipairs(keys) do if not finite(r[k]) then return false end end
+    return true
+  end
+  local kept = {}
+  for addr, s in pairs(t) do
+    if type(addr) == "string" and addr:match("^0x%x+$") and alive[addr] and numbers(s, { "w", "h" })
+        and (s.box == nil or numbers(s.box, { "x", "y", "w", "h" }))
+        and (s.zone == nil or numbers(s.zone, { "x", "y", "w", "h", "ws", "bar" })) then
+      kept[addr] = s
+    end
+  end
+  return kept
+end
+
+local snapped = previous and previous.snapped or restore()
 M.snapped = snapped
+
+local function save()
+  local function lua(v)
+    if type(v) ~= "table" then return finite(v) and string.format("%q", v) or "nil" end
+    local parts = {}
+    for k, x in pairs(v) do parts[#parts + 1] = "[" .. string.format("%q", k) .. "]=" .. lua(x) end
+    return "{" .. table.concat(parts, ",") .. "}"
+  end
+  local f = io.open(STATE .. ".tmp", "w")
+  if not f then return end
+  f:write("return ", lua(snapped), "\n")
+  f:close()
+  os.rename(STATE .. ".tmp", STATE)
+end
+
+local function forget(addr)
+  snapped[addr] = nil
+  save()
+end
 
 local function place(addr, box, zone)
   local w = window(addr)
@@ -261,6 +310,7 @@ local function place(addr, box, zone)
   local target = { x = box.x, y = box.y + zone.bar, w = box.w, h = box.h - zone.bar }
   if target.w < 50 or target.h < 50 then return end
   snapped[addr].box, snapped[addr].zone = target, zone
+  save()
   local win = "address:" .. addr
   -- A window dragged near another monitor may have been handed to it on the
   -- way: put it on the zone's workspace before placing it there.
@@ -394,7 +444,7 @@ local function finish(drop)
   if not (drop and d and d.target) then return end
   local layout = M.LAYOUTS[d.target.layout]
   if layout.scratchpad then
-    snapped[d.addr] = nil
+    forget(d.addr)
     dispatch(hl.dsp.window.move({ window = "address:" .. d.addr, workspace = "special:scratchpad", follow = false }))
   else
     local zone = zone_of(d)
@@ -409,7 +459,7 @@ end
 local function unsnap(w, cx)
   local s = snapped[w.address]
   if not s then return end
-  snapped[w.address] = nil
+  forget(w.address)
   if s.zone then arrange(s.zone, members(s.zone, w.address), false) end
   local wx, wy = xy(w.at)
   local ww, wh = xy(w.size)
@@ -670,7 +720,7 @@ end
 M.closed = hl.on("window.close", safe(function(w)
   local s = w and snapped[w.address]
   if not s then return end
-  snapped[w.address] = nil
+  forget(w.address)
   local addr = w.address
   if s.zone then
     hl.timer(safe(function() arrange(s.zone, members(s.zone, addr), false) end), { timeout = 1, type = "oneshot" })

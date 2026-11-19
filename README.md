@@ -20,7 +20,8 @@ Windows 11 snap layouts and PowerToys FancyZones: drag a window, drop it into a 
   When one is dragged out or closed, the rest close up.
 - **Peek.** Rest the pointer on a covered window in a fan and it comes up,
   see-through and without taking focus. Click to keep it, move away to put it back.
-- **Drag out.** Pulling a placed window away gives it back its earlier size.
+- **Drag out.** Pulling a placed window away gives it back its earlier size,
+  also after a Hyprland config reload.
 - **No key bindings.** Window Zones adds none, so every Omarchy shortcut keeps working.
 
 Works with titlebar drags and <kbd>Super</kbd> + left-drag, on every monitor.
@@ -61,7 +62,9 @@ Hyprland with `hyprctl eval`, watches instead:
   still over a target, Window Zones nudges the cursor one pixel: a held window follows,
   a dropped one does not, and the cursor goes back.
 
-Nothing is written to your config files.
+Nothing is written to your config files. The earlier sizes of placed windows are
+kept in `$XDG_RUNTIME_DIR/window-zones-snapped.lua`, so a config reload does not
+lose them; it is gone after logging out.
 
 ## Limits
 
@@ -69,7 +72,6 @@ Nothing is written to your config files.
   pinned, fullscreen and grouped windows are left alone.
 - A very short flick can finish before Window Zones notices the drag.
 - Apps with a minimum size may not shrink into a small cell.
-- A Hyprland config reload forgets earlier sizes (changing a setting does not): a window placed before it keeps its placed size when dragged out.
 
 ## Development
 

@@ -82,6 +82,39 @@ tick("drag") tick("drag")
 hl.get_monitor_at = function() return monitor end
 assert(#spawned == 0 or not spawned[#spawned]:match("stopped"), "a missing monitor is no error")
 
+-- Restore sizes survive a config reload, which starts a fresh Lua state.
+local state_file = "/tmp/window-zones-snapped.lua"
+os.remove(state_file)
+tick("idle")
+win.at.x, cursor.x = win.at.x - 50, cursor.x - 50
+tick("idle")
+cursor.x, win.at.x = 2, win.at.x - (cursor.x - 2)
+tick("drag")                      -- at the left edge: target is the left half
+cursor.y = cursor.y + 20
+tick("drag")                      -- the cursor moved on without the window: dropped
+assert(count("window", "resize") > 0, "the window is placed")
+local function reload()
+  window_zones = nil
+  window_zones_gen = 2
+  dofile(file)
+end
+local windows = hl.get_windows
+hl.get_windows = function() return {} end
+reload()
+assert(next(window_zones.snapped) == nil, "entries of windows that are gone are dropped")
+hl.get_windows = windows
+reload()
+local s = window_zones.snapped["0xa"]
+assert(s and s.w == 800 and s.h == 600 and s.box and s.zone, "the restore size is back after a reload")
+
+-- A state file that tries to run code is ignored.
+local f = assert(io.open(state_file, "w"))
+f:write('return { ["0xa"] = { w = os.exit(1), h = 1 } }')
+f:close()
+reload()
+assert(next(window_zones.snapped) == nil, "a hostile state file is ignored")
+os.remove(state_file)
+
 -- An error inside a tick stops the plugin once, instead of on every tick.
 hl.get_cursor_pos = function() error("boom") end
 for _ = 1, 10 do tick("idle") tick("drag") end
