@@ -3,7 +3,7 @@
 Window snapping for [Omarchy](https://omarchy.org)'s floating workspaces, in the spirit of
 Windows 11 snap layouts and PowerToys FancyZones: drag a window, drop it into a zone.
 
-![The layout panel under the bar, a cell lit, the preview behind it](preview.png)
+![A window dragged into a corner, to the right edge, through the layout panel, onto a taken zone and out again](demo.gif)
 
 - **Screen edges and corners.** Drag a window to the left or right edge: a preview
   shows the half it will take, and dropping puts it there. Into a corner, it takes
@@ -106,6 +106,9 @@ be empty, floating and in the focused monitor's block (Omarchy renumbers the
 others); by default it takes slot 9 of that block. It takes over the mouse for
 about a minute and puts its windows and settings back afterwards. It needs
 `foot`, `jq`, `lua`, a C compiler and the Wayland client headers.
+
+`test/e2e/demo.sh <monitor> <workspace>` records `demo.gif` the same way, with
+neutral terminals and without the dock.
 
 Link the checkout into `~/.config/omarchy/plugins/io.github.derjungeherr.window-zones`,
 enable it, and run `omarchy restart shell` after adding files.
